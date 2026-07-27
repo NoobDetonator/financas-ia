@@ -1,0 +1,17 @@
+{
+  "name": "financas-web",
+  "private": true,
+  "version": "0.1.0",
+  "description": "KAKEIBO.SYS — interface PC-98 do controle de financas",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vite": "^7.1.14"
+  }
+}

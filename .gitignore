@@ -1,0 +1,61 @@
+# ═══════════════════════════════════════════════════════════════════════════
+# SEGREDOS E DADOS FINANCEIROS — nunca entram no repositório.
+#
+# `.env` guarda a chave da API de IA e a senha de acesso.
+# `data/` guarda o banco SQLite com os lançamentos reais.
+#
+# As duas primeiras seções são a razão de este arquivo existir. Se você for
+# adicionar algo aqui, considere se não deveria estar acima desta linha.
+# ═══════════════════════════════════════════════════════════════════════════
+
+.env
+.env.*
+!.env.example
+
+data/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
+
+# Backups do banco, gerados por POST /system/backup
+backups/
+
+# ── Dependências e artefatos de build ──────────────────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+
+# ── Logs ───────────────────────────────────────────────────────────────────
+*.log
+npm-debug.log*
+logs/
+
+# ── Editores e sistema operacional ─────────────────────────────────────────
+.DS_Store
+Thumbs.db
+desktop.ini
+.idea/
+*.swp
+*~
+
+# O VS Code pode guardar configuração útil de projeto; ignora só o pessoal.
+.vscode/*
+!.vscode/extensions.json
+
+# ── Temporários ────────────────────────────────────────────────────────────
+.tmp/
+*.tmp
+.cache/
+
+# ── Ferramental de agentes de código ───────────────────────────────────────
+# Instalacoes de skills e hooks de assistentes (Claude, Cursor, Gemini, Codex).
+# Sao ferramentas do ambiente de quem desenvolve, nao parte do projeto — e sao
+# quase 500 arquivos que nao dizem nada a quem clona o repositorio.
+.claude/
+.cursor/
+.gemini/
+.agents/
+.codex/
+.impeccable/

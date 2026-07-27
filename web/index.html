@@ -1,0 +1,984 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>KAKEIBO.SYS — PC-98 Personal Finance Manager & AI Assistant</title>
+  <link rel="stylesheet" href="./src/styles/pc98-tokens.css" />
+  <script>
+    // Persist theme before paint to avoid flash
+    (function () {
+      try {
+        var t = localStorage.getItem('kakeibo.theme');
+        document.documentElement.setAttribute('data-theme', t === 'dark' ? 'dark' : 'light');
+      } catch (e) {
+        document.documentElement.setAttribute('data-theme', 'light');
+      }
+    })();
+  </script>
+</head>
+<body>
+  <!-- CRT Scanline Overlay -->
+  <div id="crt-overlay" class="crt-overlay"></div>
+
+  <!-- ==================== BOOT / POST SCREEN ==================== -->
+  <div id="boot-screen" class="gate-screen">
+    <div class="pc98-window gold-frame gate-window">
+      <div class="window-title-bar">
+        <div class="title-label"><span class="title-dots">▚</span> KAKEIBO.SYS — INICIALIZANDO</div>
+      </div>
+      <div class="window-content gate-body">
+        <div class="gate-brand">
+          <div class="gate-brand-name">KAKEIBO<span class="gate-brand-ext">.SYS</span></div>
+          <div class="gate-brand-rule" aria-hidden="true"></div>
+          <div class="gate-brand-sub">FINANCE WORKSTATION · v1.0.98</div>
+        </div>
+        <div class="text-micro" style="color: var(--c-grey-blue);">NEC PC-9801 COMPATIBLE · MEMORY OK · 640KB</div>
+        <div id="boot-status" class="boot-status txt-cyan" role="status" aria-live="polite">INICIANDO...</div>
+        <div class="gate-loader" aria-hidden="true">
+          <span></span><span></span><span></span><span></span><span></span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ==================== LOGIN SCREEN ==================== -->
+  <div id="login-screen" class="gate-screen hidden">
+    <div class="pc98-window gold-frame gate-window">
+      <div class="window-title-bar">
+        <div class="title-label"><span class="title-dots">▚</span> ACESSO RESTRITO</div>
+      </div>
+      <div class="window-content gate-body">
+        <div class="gate-brand">
+          <div class="gate-brand-name">KAKEIBO<span class="gate-brand-ext">.SYS</span></div>
+          <div class="gate-brand-rule" aria-hidden="true"></div>
+          <div class="gate-brand-sub">FINANCE WORKSTATION · v1.0.98</div>
+        </div>
+        <!-- Corpo em --fs-ui (15px), não em --fs-sm (13px): é a única frase que o
+             usuário precisa ler, e a 13px competia com o rótulo do campo a 11px.
+             A hierarquia do cartão fica em três níveis claros — marca 32, instrução
+             15, rótulo/letra miúda 11 e 9. -->
+        <div class="text-ui" style="color: var(--c-grey-blue); margin-bottom: 10px;">
+          Sistema protegido. Informe a senha de acesso.
+        </div>
+        <form id="login-form" autocomplete="off">
+          <label class="micro-label" for="login-password" style="display: block; margin-bottom: 4px;">SENHA</label>
+          <input
+            id="login-password"
+            class="pc98-input"
+            type="password"
+            name="password"
+            autocomplete="current-password"
+            style="width: 100%; margin-bottom: 10px;"
+          />
+          <div id="login-error" class="text-sm txt-pink hidden" role="alert" style="margin-bottom: 8px;"></div>
+          <button id="login-submit" class="pc98-btn btn-primary" type="submit" style="width: 100%;">[ENTRAR]</button>
+        </form>
+        <div class="text-nano" style="color: var(--c-grey-blue); margin-top: 12px; line-height: 1.5;">
+          A senha é a <code>APP_PASSWORD</code> definida no arquivo <code>.env</code> do servidor.
+          A sessão dura 30 dias neste navegador.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Fullscreen Main Viewport Shell -->
+  <div id="app-viewport" class="hidden">
+    <div class="desktop-chassis">
+
+      <!-- TOP SYSTEM STATUS BAR (30px) -->
+      <header class="status-bar">
+        <div class="status-left">
+          <span>KAKEIBO.SYS v1.0.98</span>
+          <span class="status-badge">NEC PC-9801 MODE</span>
+          <span id="system-clock">2026.07.26 15:30:00</span>
+        </div>
+        <div class="status-right">
+          <!-- ACTIVE USER PROFILE BADGE -->
+          <button id="btn-open-profile" class="status-btn help-btn" style="display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px;">
+            <div style="width: 18px; height: 18px; background: var(--c-void-black); border: 1px solid var(--c-amber); display: flex; align-items: center; justify-content: center;">
+              <canvas id="user-header-avatar-canvas" style="width: 16px; height: 16px; image-rendering: pixelated;"></canvas>
+            </div>
+            <span id="header-username">Allan</span>
+          </button>
+
+          <span class="status-signal">SIGNAL: 100% ▓▒░</span>
+          <button id="btn-mobile-ai" class="status-btn btn-mobile-ai help-btn" type="button" aria-controls="ai-dock" aria-expanded="false">[AI]</button>
+          <button id="btn-open-help" class="status-btn help-btn">[? HELP]</button>
+          <button id="btn-toggle-theme" class="status-btn" type="button" aria-pressed="false" title="Alternar tema claro/escuro">THEME: DARK</button>
+          <button id="btn-toggle-sound" class="status-btn" type="button" aria-pressed="true">SND: ON</button>
+          <button id="btn-toggle-crt" class="status-btn" type="button" aria-pressed="true">CRT: ON</button>
+        </div>
+      </header>
+
+      <!-- FULLSCREEN 3-COLUMN WORKSPACE BODY -->
+      <div class="workspace-3col">
+
+        <!-- ==================== LEFT SIDEBAR NAVIGATION ==================== -->
+        <aside class="left-sidebar-nav">
+          <div class="pc98-window gold-frame" style="flex: 1;">
+            <div class="window-title-bar">
+              <div class="title-label">
+                <span>✦ NAVIGATION</span>
+              </div>
+            </div>
+            <div class="window-content" style="gap: 6px; padding: 8px;">
+
+              <div class="sidebar-group-title">[ MAIN ]</div>
+
+              <button class="sidebar-item-btn active" data-tab="dashboard">
+                <span class="nav-hotkey-badge">1</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M1 1h5v5H1V1zm7 0h5v3H8V1zM1 8h5v5H1V8zm7-2h5v7H8V6z"/></svg>
+                <span>PAINEL PRINCIPAL</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="transactions">
+                <span class="nav-hotkey-badge">3</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M2 1h10v12H2V1zm2 2v2h6V3H4zm0 4v2h6V7H4zm0 4v1h4v-1H4z"/></svg>
+                <span>JOURNAL</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="accounts">
+                <span class="nav-hotkey-badge">4</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M1 3h12v8H1V3zm2 2v4h8V5H3zm1 1h3v1H4V6z"/></svg>
+                <span>CONTAS</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="debts">
+                <span class="nav-hotkey-badge">5</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M7 1l6 3v6l-6 3-6-3V4l6-3zm0 2L3 5v4l4 2 4-2V5L7 3zm-1 2h2v3H6V5zm0 4h2v1H6V9z"/></svg>
+                <span>DÍVIDAS</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="investments">
+                <span class="nav-hotkey-badge">6</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M1 12h2V7H1v5zm4 0h2V4H5v8zm4 0h2V2H9v10zm4 0h2V6h-2v6z"/></svg>
+                <span>INVEST.</span>
+              </button>
+
+              <div class="sidebar-group-title">[ PLANNING ]</div>
+
+              <button class="sidebar-item-btn" data-tab="recurrences">
+                <span class="nav-hotkey-badge">R</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M7 1a6 6 0 105.2 3H10v2h4V2h-2l-.4.6A6 6 0 007 1zM3 7h2v2H3V7zm3 0h2v2H6V7zm3 0h2v2H9V7z"/></svg>
+                <span>RECORRÊNCIAS</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="goals">
+                <span class="nav-hotkey-badge">M</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M7 1a6 6 0 110 12A6 6 0 017 1zm0 2a4 4 0 100 8 4 4 0 000-8zm0 2a2 2 0 110 4 2 2 0 010-4z"/></svg>
+                <span>METAS</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="rules">
+                <span class="nav-hotkey-badge">G</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M2 2h10v2H2V2zm0 4h7v2H2V6zm0 4h10v2H2v-2zm9-5h3v4H9L8 7l1-2z"/></svg>
+                <span>REGRAS</span>
+              </button>
+
+              <div class="sidebar-group-title">[ ANALYTICS & TOOLS ]</div>
+
+              <button class="sidebar-item-btn" data-tab="importer">
+                <span class="nav-hotkey-badge">7</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M6 1h2v6h3L7 12 3 7h3V1zm-4 11h10v2H2v-2z"/></svg>
+                <span>IMPORT.</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="category">
+                <span class="nav-hotkey-badge">8</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M7 1l6 11H1L7 1zm0 3L4 11h6L7 4z"/></svg>
+                <span>CATEGORIAS</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="reports">
+                <span class="nav-hotkey-badge">F</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M1 11h12v2H1v-2zM2 9l3-4 2 2 4-5 2 1-5 7-2-2-3 3-1-2z"/></svg>
+                <span>FLUXO/PROJEÇÃO</span>
+              </button>
+
+              <div class="sidebar-group-title">[ SYSTEM ]</div>
+
+              <button id="btn-sidebar-profile" class="sidebar-item-btn" style="background-color: var(--c-slate);">
+                <span class="nav-hotkey-badge">P</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M7 1a3 3 0 110 6 3 3 0 010-6zM2 12c0-3 2.2-5 5-5s5 2 5 5v1H2v-1z"/></svg>
+                <span>PERFIL</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="style-guide">
+                <span class="nav-hotkey-badge">9</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z"/></svg>
+                <span>STYLE GUIDE</span>
+              </button>
+
+              <button class="sidebar-item-btn" data-tab="add" style="margin-top: 4px; border-color: var(--c-amber);">
+                <span class="nav-hotkey-badge">+</span>
+                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M6 1h2v5h5v2H8v5H6V8H1V6h5V1z"/></svg>
+                <span>NOVO REGISTRO</span>
+              </button>
+
+            </div>
+          </div>
+        </aside>
+
+        <!-- ==================== CENTER ACTIVE WORKSPACE ==================== -->
+        <main class="center-workspace">
+
+          <!-- VIEW 1: DASHBOARD -->
+          <div id="view-dashboard" class="view-panel active-view">
+
+            <div class="dashboard-scroll">
+            <!-- SUMMARY METRICS ROW -->
+            <div class="metrics-row">
+              <!-- BALANCE -->
+              <article class="pc98-window gold-frame">
+                <div class="window-title-bar">
+                  <div class="title-label"><span>✦ SALDO ✦</span></div>
+                </div>
+                <div class="window-content" style="padding: 10px;">
+                  <div class="micro-label">DISPONÍVEL (BRL)</div>
+                  <div id="val-balance" class="num-currency text-metric">R$ 0,00</div>
+                  <div class="micro-label txt-green">SALDO CONSOLIDADO</div>
+                </div>
+              </article>
+
+              <!-- NET WORTH -->
+              <article class="pc98-window gold-frame">
+                <div class="window-title-bar">
+                  <div class="title-label"><span>✦ PATRIMÔNIO ✦</span></div>
+                </div>
+                <div class="window-content" style="padding: 10px;">
+                  <div class="micro-label">PATRIMÔNIO LÍQUIDO</div>
+                  <div id="val-net-worth" class="num-currency text-metric txt-cyan">R$ 0,00</div>
+                  <div class="micro-label txt-cyan">CONTAS + INVESTIMENTOS</div>
+                </div>
+              </article>
+
+              <!-- INCOME -->
+              <article class="pc98-window">
+                <div class="window-title-bar" style="background-color: var(--c-slate);">
+                  <div class="title-label text-xs">RECEITA</div>
+                </div>
+                <div class="window-content" style="padding: 10px;">
+                  <div class="micro-label">RECEITA MENSAL</div>
+                  <div id="val-income" class="num-currency text-metric txt-green">R$ 0,00</div>
+                  <div class="micro-label txt-green">RECEITAS EFETIVADAS</div>
+                </div>
+              </article>
+
+              <!-- EXPENSES -->
+              <article class="pc98-window">
+                <div class="window-title-bar" style="background-color: var(--c-slate);">
+                  <div class="title-label text-xs">DESPESAS</div>
+                </div>
+                <div class="window-content" style="padding: 10px;">
+                  <div class="micro-label">DESPESA MENSAL</div>
+                  <div id="val-expense" class="num-currency text-metric txt-pink">R$ 0,00</div>
+                  <div class="micro-label txt-pink">DESPESAS EFETIVADAS</div>
+                </div>
+              </article>
+            </div>
+
+            <!-- DASHBOARD CHARTS ROW (RADAR KPI & GAUGE GOAL) -->
+            <div class="dashboard-charts-row">
+              <article class="pc98-window">
+                <div class="window-title-bar"><div class="title-label"><span>RADAR KPI</span></div></div>
+                <div class="window-content chart-frame">
+                  <canvas id="radar-chart-canvas" class="chart-canvas" role="img" aria-label="Radar KPI: poupança, liquidez, investimentos, dívidas e orçamento" width="220" height="168"></canvas>
+                </div>
+              </article>
+
+              <article class="pc98-window" style="flex: 1;">
+                <div class="window-title-bar">
+                  <div class="title-label"><span>BUDGET ALLOCATIONS & SAVINGS GAUGE</span></div>
+                </div>
+                <div class="window-content budget-gauge-content">
+                  <div id="budget-bars-container" class="budget-bars-col">
+                    <!-- Progress bars injected via app.ts -->
+                  </div>
+                  <div class="savings-gauge-panel chart-frame">
+                    <canvas id="gauge-chart-canvas" class="chart-canvas" role="img" aria-label="Medidor de progresso da meta de economia" width="160" height="148"></canvas>
+                  </div>
+                </div>
+              </article>
+            </div>
+
+            <!-- INSIGHTS & UPCOMING BILLS ROW -->
+            <div class="dashboard-split-row">
+              <article class="pc98-window accent-header">
+                <div class="window-title-bar"><div class="title-label"><span>DETERMINISTIC INSIGHTS</span></div></div>
+                <div class="window-content insights-scroll">
+                  <div id="insights-panel"></div>
+                </div>
+              </article>
+
+              <article class="pc98-window">
+                <div class="window-title-bar"><div class="title-label"><span>UPCOMING BILLS</span></div></div>
+                <div class="window-content insights-scroll">
+                  <div id="upcoming-bills"></div>
+                </div>
+              </article>
+            </div>
+            </div><!-- /.dashboard-scroll -->
+
+            <!-- BOTTOM DOCK PINNED — dialogue only (nav lives in the sidebar) -->
+            <div class="dashboard-dock-row">
+              <article class="user-bottom-dock">
+                <div class="user-portrait-box">
+                  <canvas id="user-bottom-avatar-canvas" class="user-portrait-canvas"></canvas>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; justify-content: space-between; height: 100%;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div id="bottom-username-tag" class="micro-label text-xs" style="color: var(--c-amber);">[USER] Allan</div>
+                    <div class="micro-label txt-cyan">STATUS: ACTIVE</div>
+                  </div>
+                  <div id="ai-text-target" class="ai-dialogue-text">
+                    <!-- Typewriter text inserted here -->
+                  </div>
+                  <button type="button" id="btn-ai-continue" class="micro-label txt-cyan" style="align-self: flex-end; background: none; border: none; cursor: pointer; padding: 0; font: inherit; color: inherit;" title="Atalho: C">
+                    ▼ [C] CONTINUE
+                  </button>
+                </div>
+              </article>
+            </div>
+
+          </div>
+
+          <!-- VIEW 4: ACCOUNTS & CREDIT CARDS -->
+          <div id="view-accounts" class="view-panel">
+            <article class="pc98-window accent-header" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>CONTAS E CARTÕES</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto; gap: 12px;">
+                <div id="accounts-cards-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                  <!-- Cards rendered dynamically -->
+                </div>
+
+                <div class="pc98-well" style="display: flex; flex-direction: column; gap: 10px;">
+                  <div class="micro-label text-xs" style="color: var(--c-pink);">NUBANK CRÉDITO — FATURA ATUAL</div>
+                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
+                    <div class="pc98-well"><div class="micro-label">FECHAMENTO:</div><div class="text-md">Dia 28</div></div>
+                    <div class="pc98-well"><div class="micro-label">VENCIMENTO:</div><div class="text-md txt-amber">Dia 05</div></div>
+                    <div class="pc98-well"><div class="micro-label">DÍVIDA FATURA:</div><div class="num-currency text-lg txt-pink">R$ 1.840,50</div></div>
+                    <div class="pc98-well"><div class="micro-label">DISPONÍVEL:</div><div class="num-currency text-lg txt-green">R$ 6.159,50</div></div>
+                  </div>
+                  <button id="btn-pay-invoice" class="pc98-btn btn-primary" style="align-self: flex-end;">[PAGAR FATURA]</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW 5: DEBTS & AMORTIZATION -->
+          <div id="view-debts" class="view-panel">
+            <article class="pc98-window alert-header" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>DÍVIDAS E AMORTIZAÇÃO</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto; gap: 12px;">
+                <div id="debts-cards-container" style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <!-- Injected via app.ts -->
+                </div>
+
+                <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div class="micro-label text-xs" style="color: var(--c-amber);">AMORTIZAÇÃO SAC / PRICE</div>
+                    <button id="btn-open-sac-price-help" class="pc98-btn btn-gold text-label" style="padding: 2px 8px;">
+                      [? SAC vs PRICE]
+                    </button>
+                  </div>
+                  <table class="text-sm" style="width: 100%; border-collapse: collapse; font-family: var(--font-primary);">
+                    <thead>
+                      <tr class="text-micro" style="background: var(--c-slate); color: var(--c-bone-white); text-align: left; font-family: var(--font-micro);">
+                        <th style="padding: 6px;">PARCELA</th>
+                        <th style="padding: 6px;">PRESTAÇÃO</th>
+                        <th style="padding: 6px;">JUROS</th>
+                        <th style="padding: 6px;">AMORTIZAÇÃO</th>
+                        <th style="padding: 6px;">SALDO DEVEDOR</th>
+                      </tr>
+                    </thead>
+                    <tbody id="amortization-table-body"></tbody>
+                  </table>
+                  <button id="btn-simulate-early-pay" class="pc98-btn btn-alert" style="align-self: flex-end;">[SIMULAR ANTECIPAÇÃO]</button>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW 6: INVESTMENTS PORTFOLIO -->
+          <div id="view-investments" class="view-panel">
+            <article class="pc98-window gold-frame" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>✦ PORTFÓLIO DE INVESTIMENTOS ✦</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto; gap: 12px;">
+                <div class="pc98-well" style="display: flex; justify-content: space-between; align-items: center; padding: 12px;">
+                  <div>
+                    <div class="micro-label">PATRIMÔNIO EM INVESTIMENTOS</div>
+                    <div id="val-consolidated-portfolio" class="num-currency text-display txt-cyan">R$ 0,00</div>
+                  </div>
+                  <div class="micro-label txt-green" style="font-size: 16px;">RENTABILIDADE: +12,1%</div>
+                </div>
+
+                <!-- CANDLESTICK PRICE CHART -->
+                <div class="pc98-well" style="display: flex; flex-direction: column; gap: 6px;">
+                  <canvas id="candlestick-chart-canvas" class="chart-canvas" role="img" aria-label="Candlestick BTC/BRL diário" style="width: 100%; height: 200px;"></canvas>
+                </div>
+
+                <div class="pc98-well" id="holdings-table-container"></div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW 3: TRANSACTIONS JOURNAL (WITH MULTI-SELECT BATCH TOOLBAR) -->
+          <div id="view-transactions" class="view-panel">
+            <article class="pc98-window" style="flex: 1; display: flex; flex-direction: column;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>JOURNAL DE TRANSAÇÕES</span></div>
+              </div>
+              <div class="window-content" style="flex: 1; display: flex; flex-direction: column; padding: 8px;">
+
+                <!-- SEARCH & CATEGORY FILTER STRIP -->
+                <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: center;">
+                  <div class="pc98-well" style="padding: 4px 8px; flex: 1;">
+                    <input type="text" id="journal-search-input" class="pc98-input" style="border: none; background: transparent; width: 100%; font-size: 14px;" placeholder="Filtrar por texto..." />
+                  </div>
+                  <div id="tx-filter-strip" style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button class="pc98-btn active btn-primary filter-btn" data-filter="all">[ALL]</button>
+                    <button class="pc98-btn filter-btn" data-filter="income">[INCOME]</button>
+                    <button class="pc98-btn filter-btn" data-filter="expense">[EXPENSE]</button>
+                  </div>
+                </div>
+
+                <!-- BATCH ACTIONS TOOLBAR -->
+                <div id="journal-batch-bar" class="pc98-well journal-batch-bar hidden">
+                  <div style="display: flex; align-items: center; gap: 8px; flex-wrap: wrap;">
+                    <span id="batch-selected-count" class="micro-label text-xs" style="color: var(--c-amber);">[0 SELECIONADOS]</span>
+                    <button id="btn-batch-select-all" class="pc98-btn text-micro" style="padding: 2px 6px;">[SELECIONAR TODOS]</button>
+                  </div>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button id="btn-batch-delete" class="pc98-btn btn-alert text-micro" style="padding: 4px 10px;">[APAGAR SELECIONADOS]</button>
+                    <button id="btn-batch-recategorize" class="pc98-btn btn-gold text-micro" style="padding: 4px 10px;">[MUDAR CATEGORIA]</button>
+                  </div>
+                </div>
+
+                <div class="tx-header">
+                  <div style="width: 24px; text-align: center;">SEL</div>
+                  <div>ICON</div>
+                  <div>DATA</div>
+                  <div>DESCRIÇÃO</div>
+                  <div>CATEGORIA</div>
+                  <div style="text-align: right;">VALOR</div>
+                </div>
+
+                <div id="journal-rows-container" class="tx-list" style="flex: 1; overflow-y: auto;"></div>
+
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW 8: CATEGORY BREAKDOWN & ADVANCED CHARTS -->
+          <div id="view-category" class="view-panel">
+            <article class="pc98-window accent-header" style="flex: 1; display: flex; flex-direction: column;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>FLUXO SANKEY E ANALYTICS</span></div>
+              </div>
+              <div class="window-content analytics-view" style="overflow-y: auto; gap: 12px;">
+
+                <!-- SANKEY MONEY FLOW CHART -->
+                <div class="pc98-well chart-well">
+                  <div class="micro-label txt-cyan">FLUXO DE CAIXA · RECEITA → CONTAS → DESTINOS</div>
+                  <canvas id="sankey-chart-canvas" class="chart-canvas" role="img" aria-label="Fluxo Sankey de receita para contas e destinos" style="width: 100%; height: 260px;"></canvas>
+                </div>
+
+                <!-- WATERFALL CASCADE & DONUT CHART ROW -->
+                <div class="analytics-split">
+                  <div class="pc98-well chart-well">
+                    <div class="micro-label txt-green">CASCATA DE SALDO (WATERFALL)</div>
+                    <canvas id="waterfall-chart-canvas" class="chart-canvas" role="img" aria-label="Waterfall de cascata de orçamento" style="width: 100%; height: 240px;"></canvas>
+                  </div>
+                  <div class="pc98-well chart-well">
+                    <div class="micro-label txt-amber">DISTRIBUIÇÃO POR CATEGORIA</div>
+                    <canvas id="donut-chart-canvas" class="chart-canvas" role="img" aria-label="Donut de categorias de gasto" style="width: 100%; height: 240px;"></canvas>
+                  </div>
+                </div>
+
+                <div style="display: grid; grid-template-columns: 220px 1fr; gap: 10px;">
+                  <div class="pc98-well" id="cat-detail-picker"></div>
+                  <div class="pc98-well" id="cat-breakdown-bars"></div>
+                </div>
+
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW: RECURRENCES -->
+          <div id="view-recurrences" class="view-panel">
+            <article class="pc98-window accent-header" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>RECORRÊNCIAS E CONTAS FIXAS</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto; padding: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div class="micro-label" style="color: var(--c-pale-cyan);">CONTAS FIXAS E ASSINATURAS RECORRENTES (MATERIALIZAÇÃO ANTECIPADA)</div>
+                  <button class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA RECORRÊNCIA]</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 280px; gap: 12px;">
+                  <div id="recurrences-list"></div>
+                  <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
+                      <div class="micro-label" style="color: var(--c-amber);">RESUMO FIXO MENSAL</div>
+                      <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                        <span>RECEITAS FIXAS:</span>
+                        <span class="num-currency txt-green">+R$ 7.800,00</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                        <span>DESPESAS FIXAS:</span>
+                        <span class="num-currency txt-pink">-R$ 2.920,80</span>
+                      </div>
+                      <div style="border-top: 1px dotted var(--c-slate); padding-top: 6px; display: flex; justify-content: space-between; font-size: 14px; font-weight: bold;">
+                        <span>BALANÇO FIXO:</span>
+                        <span class="num-currency txt-green">+R$ 4.879,20</span>
+                      </div>
+                    </div>
+                    <div class="pc98-well" style="font-size: 12px; line-height: 1.5; color: var(--c-pale-grey);">
+                      <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">DICA DO SISTEMA:</div>
+                      Recorrências marcadas como <span class="txt-amber">[AUTO]</span> são materializadas automaticamente no dia de vencimento. Recorrências <span class="txt-cyan">[MANUAL]</span> requerem sua confirmação.
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW: GOALS -->
+          <div id="view-goals" class="view-panel">
+            <article class="pc98-window gold-frame" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>METAS E RESERVAS</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto; padding: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div class="micro-label" style="color: var(--c-amber);">METAS DE ECONOMIA E CAIXINHAS VIRTUAIS</div>
+                  <button class="pc98-btn btn-gold" style="padding: 4px 10px; font-size: 11px;">[+ NOVA META]</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 280px; gap: 12px;">
+                  <div id="goals-list"></div>
+                  <div style="display: flex; flex-direction: column; gap: 10px;">
+                    <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
+                      <div class="micro-label" style="color: var(--c-amber);">RESUMO DE RESERVAS</div>
+                      <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                        <span>TOTAL ACUMULADO:</span>
+                        <span class="num-currency txt-green">R$ 9.300,00</span>
+                      </div>
+                      <div style="display: flex; justify-content: space-between; font-size: 13px;">
+                        <span>ALVO TOTAL:</span>
+                        <span class="num-currency txt-cyan">R$ 42.000,00</span>
+                      </div>
+                      <div style="border-top: 1px dotted var(--c-slate); padding-top: 6px; display: flex; justify-content: space-between; font-size: 14px; font-weight: bold;">
+                        <span>PROGRESSO GLOBAL:</span>
+                        <span class="num-currency txt-amber">22,1%</span>
+                      </div>
+                    </div>
+                    <div class="pc98-well" style="font-size: 12px; line-height: 1.5; color: var(--c-pale-grey);">
+                      <div class="micro-label" style="color: var(--c-pink); margin-bottom: 4px;">ALERTA DE APORTE:</div>
+                      A meta <strong>Viagem para o Chile</strong> exige um aporte de <span class="txt-amber">R$ 1.187,50/mês</span> para ser concluída na data prevista (15/03/2027).
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW: RULES -->
+          <div id="view-rules" class="view-panel">
+            <article class="pc98-window" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>REGRAS DE CATEGORIZAÇÃO</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto; padding: 10px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+                  <div class="micro-label" style="color: var(--c-sky);">REGRAS AUTOMÁTICAS DE CATEGORIZAÇÃO VIA IA</div>
+                  <button class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA REGRA]</button>
+                </div>
+                <div style="display: grid; grid-template-columns: 1fr 300px; gap: 12px;">
+                  <div id="rules-list"></div>
+                  <div class="pc98-well" style="display: flex; flex-direction: column; gap: 10px;">
+                    <div class="micro-label" style="color: var(--c-pale-cyan);">TESTADOR DE REGRAS DE CATEGORIZAÇÃO</div>
+                    <div class="pc98-form-group">
+                      <label class="micro-label">TEXTO DA TRANSAÇÃO / EXTRATO:</label>
+                      <input type="text" id="rule-test-input" class="pc98-input" placeholder="Ex: UBER TRIP SANTO AMARO" style="font-size: 13px;" />
+                    </div>
+                    <button id="btn-test-rule" class="pc98-btn btn-primary" style="padding: 6px;">[EXECUTAR TESTE DE CORRESPONDÊNCIA]</button>
+                    <div id="rule-test-result" class="pc98-well" style="font-size: 12px; color: var(--c-green); background: var(--c-void-black); min-height: 48px; padding: 6px;">
+                      Aguardando texto para testar...
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW: REPORTS / FLUXO E PROJEÇÃO -->
+          <div id="view-reports" class="view-panel">
+            <article class="pc98-window gold-frame" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>✦ RELATÓRIOS E PROJEÇÃO ✦</span></div>
+              </div>
+              <div class="window-content analytics-view" style="overflow-y: auto; gap: 12px; padding: 10px;">
+                <div class="pc98-well chart-well">
+                  <div class="micro-label txt-green">FLUXO DE CAIXA MENSAL · RECEITA vs DESPESA</div>
+                  <canvas id="flow-chart-canvas" class="chart-canvas" role="img" aria-label="Fluxo mensal receita versus despesa" style="width: 100%; height: 260px;"></canvas>
+                </div>
+
+                <div class="pc98-well chart-well">
+                  <div class="micro-label txt-cyan">PROJEÇÃO DE SALDO · PRÓXIMOS 30 DIAS</div>
+                  <canvas id="projection-chart-canvas" class="chart-canvas" role="img" aria-label="Projeção de saldo para 30 dias" style="width: 100%; height: 260px;"></canvas>
+                </div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW 7: CSV / OFX STATEMENT IMPORTER -->
+          <div id="view-importer" class="view-panel">
+            <article class="pc98-window" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>IMPORTADOR CSV / OFX</span></div>
+              </div>
+              <div class="window-content" style="gap: 16px;">
+
+                <!-- DROPZONE AREA -->
+                <div id="importer-dropzone" class="pc98-well" style="border: 2px dashed var(--c-pale-cyan); padding: 32px; text-align: center; display: flex; flex-direction: column; align-items: center; gap: 12px; cursor: pointer;">
+                  <svg width="32" height="32" viewBox="0 0 16 16" fill="none"><path d="M2 3H7L9 5H14V13H2V3ZM4 7H12V8H4V7Z" fill="currentColor"/></svg>
+                  <div style="font-size: 16px; color: var(--c-bone-white);">ARRASTE EXTRATO BANCÁRIO CSV OU OFX AQUI</div>
+                  <div class="micro-label" style="color: var(--c-grey-blue);">SUPORTA EXTRATOS DO NUBANK, ITAÚ, BRADESCO E BB</div>
+                  <button id="btn-trigger-file-select" class="pc98-btn btn-primary" style="margin-top: 6px; padding: 6px 16px;">
+                    [SELECIONAR ARQUIVO]
+                  </button>
+                  <input type="file" id="input-statement-file" accept=".csv,.ofx" style="display: none;" />
+                </div>
+
+                <!-- DITHERED IMPORT PROGRESS BAR -->
+                <div id="importer-progress-box" class="pc98-well importer-progress-box hidden">
+                  <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div id="import-status-text" class="micro-label text-xs" style="color: var(--c-pale-cyan);">LENDO EXTRATO NUBANK_2026_07.OFX...</div>
+                    <div id="import-status-pct" class="num-currency txt-amber text-md">0%</div>
+                  </div>
+                  <div class="segmented-track progress-track" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="import-progressbar">
+                    <div id="import-dither-bar" class="progress-fill dither-cyan" style="--progress: 0;"></div>
+                  </div>
+                </div>
+
+                <!-- PARSED SUMMARY RESULTS -->
+                <div id="importer-parsed-results" class="pc98-well hidden" style="display: flex; flex-direction: column; gap: 8px;">
+                  <div class="micro-label txt-green" style="font-size: 12px;">IMPORTAÇÃO CONCLUÍDA COM SUCESSO!</div>
+                  <div id="parsed-summary-text" style="font-size: 14px; color: var(--c-bone-white);">
+                    • Total de transações processadas: 14<br/>
+                    • Categorização automática via IA: 100% de confiança<br/>
+                    • 0 duplicatas detectadas.
+                  </div>
+                  <button id="btn-confirm-import-rows" class="pc98-btn btn-gold" style="align-self: flex-end; padding: 8px 16px;">
+                    [IMPORTAR PARA O JOURNAL]
+                  </button>
+                </div>
+
+                <!-- IMPORT HISTORY LOG -->
+                <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px; margin-top: 8px;">
+                  <div class="micro-label" style="color: var(--c-pale-cyan);">HISTÓRICO DE EXTRATOS IMPORTADOS ANTERIORMENTE</div>
+                  <table style="width: 100%; border-collapse: collapse; font-size: 13px;">
+                    <thead>
+                      <tr style="background: var(--c-slate); color: var(--c-bone-white); font-family: var(--font-micro); font-size: 10px; text-align: left;">
+                        <th style="padding: 6px;">DATA</th>
+                        <th style="padding: 6px;">ARQUIVO</th>
+                        <th style="padding: 6px;">BANCO / ORIGEM</th>
+                        <th style="padding: 6px;">TRANSAÇÕES</th>
+                        <th style="padding: 6px; text-align: right;">STATUS</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr style="border-bottom: 1px dotted var(--c-grey-blue);">
+                        <td style="padding: 6px;">15/07/2026</td>
+                        <td style="padding: 6px;" class="txt-cyan">extrato_nubank_2026_07.ofx</td>
+                        <td style="padding: 6px;">Nubank Crédito</td>
+                        <td style="padding: 6px;">18 registros</td>
+                        <td style="padding: 6px; text-align: right;" class="txt-green">[INCORPORADO]</td>
+                      </tr>
+                      <tr style="border-bottom: 1px dotted var(--c-grey-blue);">
+                        <td style="padding: 6px;">01/07/2026</td>
+                        <td style="padding: 6px;" class="txt-cyan">extrato_bb_2026_06.csv</td>
+                        <td style="padding: 6px;">Banco do Brasil</td>
+                        <td style="padding: 6px;">24 registros</td>
+                        <td style="padding: 6px; text-align: right;" class="txt-green">[INCORPORADO]</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW 9: STYLE GUIDE -->
+          <div id="view-style-guide" class="view-panel">
+            <article class="pc98-window accent-header" style="flex: 1;">
+              <div class="window-title-bar">
+                <div class="title-label"><span>STYLE GUIDE</span></div>
+              </div>
+              <div class="window-content" style="overflow-y: auto;">
+                <div id="swatch-grid-container" class="swatch-grid"></div>
+              </div>
+            </article>
+          </div>
+
+          <!-- VIEW ADD TRANSACTION -->
+          <div id="view-add" class="view-panel">
+            <article class="pc98-window accent-header">
+              <div class="window-title-bar">
+                <div class="title-label"><span>NOVO REGISTRO</span></div>
+              </div>
+              <div class="window-content">
+                <form id="form-full-add-tx" style="display: flex; flex-direction: column; gap: 12px;">
+                  <div class="pc98-form-group">
+                    <label class="micro-label">VALOR (R$)</label>
+                    <input type="number" step="0.01" id="full-input-amount" class="pc98-input" required />
+                  </div>
+                  <div class="pc98-form-group">
+                    <label class="micro-label">ESTABELECIMENTO</label>
+                    <input type="text" id="full-input-memo" class="pc98-input" required />
+                  </div>
+                  <div class="pc98-form-group">
+                    <label class="micro-label">DATA</label>
+                    <input type="text" id="full-input-date" class="pc98-input" value="2026.07.26" required />
+                  </div>
+                  <div id="add-cat-tile-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;"></div>
+                  <button type="submit" class="pc98-btn btn-primary text-ui" style="padding: 12px;">[REGISTRAR]</button>
+                </form>
+              </div>
+            </article>
+          </div>
+
+        </main>
+
+        <!-- ==================== RIGHT SIDEBAR AI COMMUNICATOR MODULE ==================== -->
+        <aside class="right-ai-sidebar" id="ai-dock" aria-label="KAKEIBO.AI communicator">
+          <section class="ai-dialogue-window" style="flex: 1; display: flex; flex-direction: column;">
+            <div class="ai-nameplate" style="display: flex; justify-content: space-between; align-items: center;">
+              <span>KAKEIBO.AI</span>
+              <button type="button" id="btn-close-ai-dock" class="win-btn btn-mobile-ai" aria-label="Fechar painel de IA">x</button>
+            </div>
+            <div class="ai-body" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
+
+              <!-- TOP MASCOT CANVAS & STATS IN RIGHT PANEL -->
+              <div style="display: flex; gap: 12px; align-items: center; padding-bottom: 8px; border-bottom: 1px dotted var(--c-slate);">
+                <div class="ai-avatar-box">
+                  <canvas id="ai-mascot-canvas" class="ai-avatar-canvas"></canvas>
+                </div>
+                <div>
+                  <div class="micro-label" style="color: var(--c-pale-cyan);">KAKEIBO.AI SYSTEM</div>
+                  <div class="micro-label txt-green">STATUS: MONITORANDO</div>
+                </div>
+              </div>
+
+              <!-- PERSISTENT CHAT CONVERSATION STREAM -->
+              <!-- A saudação é preenchida em tempo de execução a partir dos
+                   insights reais detectados pelo backend. Ver renderChatGreeting(). -->
+              <div id="chat-stream-box" class="chat-conversation-container" style="flex: 1; max-height: 420px; margin-top: 8px;"></div>
+
+              <!-- CLICKABLE PROMPT CHIPS -->
+              <div style="display: flex; flex-direction: column; gap: 6px; margin-top: 8px;">
+                <button class="ai-prompt-chip prompt-dash-btn" data-query="Por que Alimentação estourou?">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2H10V3H11V5H10V8H9V10H7V8H6V5H5V3H6V2ZM6 11H10V12H6V11ZM7 13H9V14H7V13Z" fill="currentColor"/></svg>
+                  Por que Alimentação estourou?
+                </button>
+                <button class="ai-prompt-chip prompt-dash-btn" data-query="Projetar fatura do Nubank">
+                  <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M6 2H10V3H11V5H10V8H9V10H7V8H6V5H5V3H6V2ZM6 11H10V12H6V11ZM7 13H9V14H7V13Z" fill="currentColor"/></svg>
+                  Projetar fatura Nubank
+                </button>
+              </div>
+
+              <!-- INPUT FORM IN RIGHT PANEL -->
+              <form id="chat-input-form" style="display: flex; gap: 6px; margin-top: 8px;">
+                <div class="pc98-well" style="flex: 1; padding: 4px 6px; display: flex; align-items: center;">
+                  <input type="text" id="chat-input-text" class="pc98-input" style="border: none; background: transparent; width: 100%; font-size: 13px;" placeholder='Pergunte ou lance: "gastei 45 no mercado"' autocomplete="off" />
+                  <span class="blinking-cursor" aria-hidden="true"></span>
+                </div>
+                <button type="submit" class="pc98-btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
+                  SEND
+                </button>
+              </form>
+
+            </div>
+          </section>
+        </aside>
+
+      </div>
+
+    </div>
+  </div>
+
+  <!-- SAC vs PRICE AMORTIZATION CLARIFICATION MODAL -->
+  <div id="modal-sac-price-help" class="modal-backdrop hidden">
+    <div class="pc98-window gold-frame" style="width: 540px; max-width: 95%;">
+      <div class="window-title-bar">
+        <div class="title-label"><span>✦ SISTEMAS DE AMORTIZAÇÃO: SAC vs PRICE ✦</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-sac-price" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="micro-label" style="color: var(--c-amber); font-size: 13px;">1. SISTEMA SAC (AMORTIZAÇÃO CONSTANTE)</div>
+          <div style="font-size: 14px; line-height: 1.5; color: var(--c-bone-white);">
+            • <strong>Como funciona:</strong> O valor amortizado da dívida é fixo todos os meses. Os juros diminuem a cada parcela.<br/>
+            • <strong>Vantagem:</strong> As parcelas começam mais altas e vão caindo. O juro total pago ao final do contrato é menor.
+          </div>
+        </div>
+
+        <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
+          <div class="micro-label" style="color: var(--c-sky); font-size: 13px;">2. TABELA PRICE (SISTEMA FRANCÊS)</div>
+          <div style="font-size: 14px; line-height: 1.5; color: var(--c-bone-white);">
+            • <strong>Como funciona:</strong> As parcelas têm valor fixo durante todo o financiamento.<br/>
+            • <strong>Vantagem:</strong> Previsibilidade do orçamento mensal, porém acumula maior valor de juros no início do contrato.
+          </div>
+        </div>
+
+        <button id="btn-close-sac-price-confirm" class="pc98-btn btn-gold" style="align-self: flex-end; padding: 6px 16px;">[ENTENDI]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- USER PROFILE CUSTOMIZATION MODAL -->
+  <div id="modal-user-profile" class="modal-backdrop hidden">
+    <div class="pc98-window gold-frame" style="width: 540px; max-width: 95%;">
+      <div class="window-title-bar">
+        <div class="title-label"><span>✦ USER PROFILE & ANIMATED AVATAR CUSTOMIZATION ✦</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-profile" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+
+        <!-- USERNAME INPUT -->
+        <div class="pc98-form-group">
+          <label class="micro-label" style="color: var(--c-amber);">NOME DE USUÁRIO:</label>
+          <input type="text" id="profile-input-username" class="pc98-input" value="Allan" placeholder="Seu Nome..." required />
+        </div>
+
+        <!-- ANIMATED PIXEL AVATAR PRESETS GRID -->
+        <div class="pc98-form-group">
+          <label class="micro-label" style="color: var(--c-sky);">SELECIONE SEU AVATAR PIXEL ANIMADO (CANVAS 48x48):</label>
+          <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin-top: 4px;" id="avatar-preset-picker-grid">
+
+            <div class="icon-tile avatar-preset-tile selected" data-preset="cyber_pilot">
+              <div style="width: 48px; height: 48px; background: var(--c-void-black); border: 2px solid var(--c-amber); display: flex; align-items: center; justify-content: center;">
+                <canvas id="preset-canvas-cyber-pilot" style="width: 44px; height: 44px; image-rendering: pixelated;"></canvas>
+              </div>
+              <span class="micro-label" style="font-size: 10px;">CYBER PILOT</span>
+            </div>
+
+            <div class="icon-tile avatar-preset-tile" data-preset="hacker">
+              <div style="width: 48px; height: 48px; background: var(--c-void-black); border: 2px solid var(--c-slate); display: flex; align-items: center; justify-content: center;">
+                <canvas id="preset-canvas-hacker" style="width: 44px; height: 44px; image-rendering: pixelated;"></canvas>
+              </div>
+              <span class="micro-label" style="font-size: 10px;">HACKER</span>
+            </div>
+
+            <div class="icon-tile avatar-preset-tile" data-preset="mecha">
+              <div style="width: 48px; height: 48px; background: var(--c-void-black); border: 2px solid var(--c-slate); display: flex; align-items: center; justify-content: center;">
+                <canvas id="preset-canvas-mecha" style="width: 44px; height: 44px; image-rendering: pixelated;"></canvas>
+              </div>
+              <span class="micro-label" style="font-size: 10px;">MECHA</span>
+            </div>
+
+            <div class="icon-tile avatar-preset-tile" data-preset="master">
+              <div style="width: 48px; height: 48px; background: var(--c-void-black); border: 2px solid var(--c-slate); display: flex; align-items: center; justify-content: center;">
+                <canvas id="preset-canvas-master" style="width: 44px; height: 44px; image-rendering: pixelated;"></canvas>
+              </div>
+              <span class="micro-label" style="font-size: 10px;">MASTER</span>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- COLOR ACCENT PICKER -->
+        <div class="pc98-form-group">
+          <label class="micro-label" style="color: var(--c-green);">COR DE DESTAQUE DO AVATAR:</label>
+          <div style="display: flex; gap: 8px; margin-top: 4px; flex-wrap: wrap;" id="profile-color-picker">
+            <button class="pc98-btn profile-color-btn active" data-color="#41A6F6" style="background-color: var(--c-sky); color: var(--c-void-black);">SKY BLUE</button>
+            <button class="pc98-btn profile-color-btn" data-color="#E5537A" style="background-color: var(--c-pink); color: var(--c-pure-white);">HOT PINK</button>
+            <button class="pc98-btn profile-color-btn" data-color="#38B764" style="background-color: var(--c-green); color: var(--c-void-black);">EMERALD</button>
+            <button class="pc98-btn profile-color-btn" data-color="#F4B41B" style="background-color: var(--c-amber); color: var(--c-void-black);">AMBER GOLD</button>
+          </div>
+        </div>
+
+        <div style="display: flex; gap: 8px; justify-content: flex-end; margin-top: 8px;">
+          <button id="btn-save-user-profile" class="pc98-btn btn-gold" style="padding: 10px 20px;">[SALVAR PERFIL]</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- AI RISK CONFIRMATION PREVIEW MODAL -->
+  <div id="modal-ai-risk-confirm" class="modal-backdrop hidden">
+    <div class="pc98-window pink-frame" style="width: 500px; max-width: 90%;">
+      <div class="window-title-bar">
+        <div class="title-label"><span>AI ACTION CONFIRMATION</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-risk" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <div class="micro-label txt-pink" style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
+          <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M7 2H9L14 12V14H2V12L7 2ZM7 6H9V9H7V6ZM7 10H9V11H7V10Z" fill="currentColor"/></svg>
+          OPERAÇÃO DE ALTO RISCO DETECTADA
+        </div>
+        <div id="ai-risk-diff-text" style="font-size: 14px; color: var(--c-bone-white);" class="pc98-well"></div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end;">
+          <button id="btn-reject-risk" class="pc98-btn">[REJEITAR]</button>
+          <button id="btn-confirm-risk" class="pc98-btn btn-alert">[APROVAR E APLICAR]</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- SYSTEM QUICK HELP GUIDE MODAL -->
+  <div id="modal-help-guide" class="modal-backdrop hidden">
+    <div class="pc98-window gold-frame" style="width: 520px;">
+      <div class="window-title-bar">
+        <div class="title-label"><span>✦ SYSTEM HELP GUIDE ✦</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-help" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <div class="pc98-well">
+          <div class="micro-label text-xs" style="color: var(--c-sky);">ATALHOS E NAVEGAÇÃO:</div>
+          <div class="text-sm" style="line-height: 1.6; color: var(--c-bone-white);">
+            • Teclas <span class="nav-hotkey-badge">1</span>, <span class="nav-hotkey-badge">3</span>–<span class="nav-hotkey-badge">9</span>, <span class="nav-hotkey-badge">R</span>/<span class="nav-hotkey-badge">M</span>/<span class="nav-hotkey-badge">G</span>/<span class="nav-hotkey-badge">F</span> trocam telas.<br/>
+            • <span class="nav-hotkey-badge">2</span> foca o painel KAKEIBO.AI à direita (overlay no mobile).<br/>
+            • No chat: perguntas ou lançamentos em linguagem natural.<br/>
+            • <span class="nav-hotkey-badge">Esc</span> fecha modais / painel IA. <span class="nav-hotkey-badge">F1</span> abre este guia.
+          </div>
+        </div>
+        <button id="btn-close-help-confirm" class="pc98-btn btn-gold">[ENTENDI]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- SYSTEM DIALOG (replaces native confirm/prompt/alert) -->
+  <div id="modal-system-dialog" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="system-dialog-title">
+    <div class="pc98-window pink-frame" style="width: 480px; max-width: 95%;">
+      <div class="window-title-bar">
+        <div class="title-label"><span id="system-dialog-title">✦ SYSTEM DIALOG ✦</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-system-dialog" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <div id="system-dialog-body" class="pc98-well text-sm" style="line-height: 1.5; color: var(--c-bone-white);"></div>
+        <div id="system-dialog-input-wrap" class="pc98-form-group hidden">
+          <label class="micro-label" for="system-dialog-input">ENTRADA:</label>
+          <input type="text" id="system-dialog-input" class="pc98-input" autocomplete="off" />
+        </div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+          <button type="button" id="btn-system-dialog-cancel" class="pc98-btn">[CANCELAR]</button>
+          <button type="button" id="btn-system-dialog-confirm" class="pc98-btn btn-alert">[CONFIRMAR]</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Main Entry Script -->
+  <script type="module" src="./src/main.ts"></script>
+</body>
+</html>

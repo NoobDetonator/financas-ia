@@ -27,7 +27,7 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
-const AI_CONFIRM_RE = /^(sim+|s+|ok+|confirmo|confirma|confirmado|pode( executar)?|aprova(r)?|aprovado)\b/i;
+const AI_CONFIRM_RE = /^(sim|ok|confirmo|confirma|confirmado|pode( executar)?|aprova(r)?|aprovado)\b/i;
 
 const CASHLIKE_KINDS = new Set(['checking', 'savings', 'cash', 'wallet', 'investment']);
 

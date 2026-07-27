@@ -695,10 +695,12 @@ export class PC98ChartSuite {
 
   // --- 8. MONTHLY FLOW LINE CHART ---
   public static renderFlowLineChart(canvas: HTMLCanvasElement, data: MonthlyFlow[]) {
-    if (data.length === 0) {
+    const active = data.filter((d) => d.incomeCents !== 0 || d.expenseCents !== 0);
+    if (active.length === 0) {
       drawEmptyState(canvas, 'FLUXO MENSAL · RECEITA vs DESPESA', 'SEM DADOS', 260);
       return;
     }
+    data = active;
     const c = beginChart(canvas, 260);
     if (!c) return;
     const { ctx, width, height, p } = c;

@@ -471,7 +471,9 @@ export async function loadAll(): Promise<LoadReport> {
       INSIGHTS = result.findings.map(adaptFinding);
     }),
     settle('fluxo mensal', api.monthlyFlow(monthsAgo(5), CURRENT_MONTH), (rows) => {
-      MONTHLY_FLOW = rows;
+      // Meses todos zerados não são "dados" — plotar uma linha no zero parece
+      // série real e confundia com o seed antigo. Só guarda mês com movimento.
+      MONTHLY_FLOW = rows.filter((row) => row.incomeCents !== 0 || row.expenseCents !== 0);
     }),
     settle('projeção', api.projection(60), (value) => {
       PROJECTION = adaptProjection(value);
@@ -518,7 +520,7 @@ export async function loadAll(): Promise<LoadReport> {
 export async function refreshAfterWrite(): Promise<void> {
   const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
 
-  const [page, balances, overview, invoices, budgets, worth, projection] = await Promise.all([
+  const [page, balances, overview, invoices, budgets, worth, projection, monthlyFlow] = await Promise.all([
     api.transactions({ limit: 300, sort: 'date_desc' }),
     api.balances(),
     api.monthOverview(),
@@ -526,6 +528,7 @@ export async function refreshAfterWrite(): Promise<void> {
     api.budgets(),
     api.netWorth(),
     api.projection(60),
+    api.monthlyFlow(monthsAgo(5), CURRENT_MONTH),
   ]);
 
   TRANSACTIONS = page.items.map((tx) => adaptTransaction(tx, planTotals, new Map()));
@@ -535,6 +538,7 @@ export async function refreshAfterWrite(): Promise<void> {
   BUDGETS = budgets.map(adaptBudget);
   NET_WORTH = worth;
   PROJECTION = adaptProjection(projection);
+  MONTHLY_FLOW = monthlyFlow.filter((row) => row.incomeCents !== 0 || row.expenseCents !== 0);
 }
 
 /** Substitui as tags de uma transação no store, após edição. */

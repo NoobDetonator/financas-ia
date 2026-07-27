@@ -100,7 +100,14 @@ export class KakeiboApp {
   private selectedAccountId: string | null = null;
   private accountFormMode: 'create' | 'edit' = 'create';
   private editingAccountId: string | null = null;
-  private pendingAiConfirm: { tokens: string[]; originalMessage: string; meta: HTMLElement } | null = null;
+  private pendingAiConfirm: {
+    items: Array<{ token: string; summary: string; reason: string }>;
+    originalMessage: string;
+    meta: HTMLElement;
+  } | null = null;
+  private aiDockCollapsed = false;
+  private aiDockWidth = 320;
+  private aiResizeActive = false;
 
   // USER PROFILE STATE & AVATAR RENDERERS
   private userName: string = 'Allan';
@@ -112,14 +119,143 @@ export class KakeiboApp {
 
   constructor() {
     this.initTheme();
+    this.initAiDockPrefs();
     this.initDOM();
     this.applyTheme(false); // refresh status-bar label after DOM exists
     this.initClock();
     this.renderAll();
     this.initEvents();
+    this.initAiDockInteractions();
     window.addEventListener('resize', () => {
       if (this.resizeTimer) window.clearTimeout(this.resizeTimer);
       this.resizeTimer = window.setTimeout(() => this.rerenderActiveCharts(), 150);
+    });
+  }
+
+  private clampAiWidth(px: number): number {
+    return Math.min(560, Math.max(260, Math.round(px)));
+  }
+
+  private initAiDockPrefs() {
+    try {
+      const storedWidth = Number(localStorage.getItem('kakeibo.aiWidth'));
+      if (Number.isFinite(storedWidth) && storedWidth > 0) {
+        this.aiDockWidth = this.clampAiWidth(storedWidth);
+      }
+      this.aiDockCollapsed = localStorage.getItem('kakeibo.aiCollapsed') === '1';
+    } catch {
+      /* ignore */
+    }
+    this.applyAiDockWidth(this.aiDockWidth, false);
+    this.applyAiDockCollapsed(this.aiDockCollapsed, false);
+  }
+
+  private applyAiDockWidth(px: number, persist = true) {
+    this.aiDockWidth = this.clampAiWidth(px);
+    document.documentElement.style.setProperty('--ai-width', `${this.aiDockWidth}px`);
+    if (persist) {
+      try {
+        localStorage.setItem('kakeibo.aiWidth', String(this.aiDockWidth));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private applyAiDockCollapsed(collapsed: boolean, persist = true) {
+    this.aiDockCollapsed = collapsed;
+    document.body.classList.toggle('ai-dock-collapsed', collapsed);
+    if (persist) {
+      try {
+        localStorage.setItem('kakeibo.aiCollapsed', collapsed ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private setAiDockCollapsed(collapsed: boolean) {
+    // On overlay layouts, minimize closes the dock instead of a desktop rail.
+    if (collapsed && window.matchMedia('(max-width: 1100px)').matches) {
+      this.applyAiDockCollapsed(false, true);
+      this.setAiDockOpen(false);
+      return;
+    }
+    this.applyAiDockCollapsed(collapsed, true);
+    // Desktop collapse must not use the mobile overlay class.
+    if (collapsed) {
+      this.setAiDockOpen(false);
+    }
+  }
+
+  private expandAiDock() {
+    this.setAiDockCollapsed(false);
+    if (window.matchMedia('(max-width: 1100px)').matches) {
+      this.setAiDockOpen(true);
+    }
+    setTimeout(() => document.getElementById('chat-input-text')?.focus(), 40);
+  }
+
+  private initAiDockInteractions() {
+    const handle = document.getElementById('ai-resize-handle');
+    const minimizeBtn = document.getElementById('btn-minimize-ai-dock');
+    const expandBtn = document.getElementById('btn-expand-ai-dock');
+
+    minimizeBtn?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.setAiDockCollapsed(true);
+    });
+
+    expandBtn?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.expandAiDock();
+    });
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!this.aiResizeActive) return;
+      // Sidebar is right-aligned; width = distance from pointer to right edge (minus padding).
+      const next = window.innerWidth - ev.clientX - 8;
+      this.applyAiDockWidth(next, false);
+    };
+    const onPointerUp = () => {
+      if (!this.aiResizeActive) return;
+      this.aiResizeActive = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      this.applyAiDockWidth(this.aiDockWidth, true);
+    };
+
+    handle?.addEventListener('pointerdown', (ev) => {
+      if (window.matchMedia('(max-width: 1100px)').matches) return;
+      ev.preventDefault();
+      this.aiResizeActive = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    });
+
+    handle?.addEventListener('keydown', (ev) => {
+      if (window.matchMedia('(max-width: 1100px)').matches) return;
+      if (ev.key === 'ArrowLeft') {
+        ev.preventDefault();
+        this.applyAiDockWidth(this.aiDockWidth + 16, true);
+      } else if (ev.key === 'ArrowRight') {
+        ev.preventDefault();
+        this.applyAiDockWidth(this.aiDockWidth - 16, true);
+      }
+    });
+
+    // Scrim click (body::before) closes overlay dock on narrow layouts.
+    document.addEventListener('pointerdown', (ev) => {
+      if (!document.body.classList.contains('ai-dock-open')) return;
+      if (!window.matchMedia('(max-width: 1100px)').matches) return;
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('#ai-dock') || target.closest('#btn-mobile-ai') || target.closest('.status-bar')) return;
+      this.setAiDockOpen(false);
     });
   }
 
@@ -442,6 +578,23 @@ export class KakeiboApp {
       return true;
     });
 
+    if (ACCOUNTS.length === 0) {
+      grid.innerHTML = `
+        <div class="pc98-well" style="padding: 16px; grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+          <div style="font-weight: bold; color: var(--c-bone-white);">Nenhuma conta ainda.</div>
+          <div class="micro-label" style="color: var(--c-pale-cyan); line-height: 1.5;">Aha: crie sua conta corrente e, se quiser, um cartão.</div>
+          <button type="button" id="btn-create-first-account" class="pc98-btn btn-primary" style="padding: 8px 12px;">[+ CRIAR PRIMEIRA CONTA]</button>
+        </div>
+      `;
+      document.getElementById('btn-create-first-account')?.addEventListener('click', () => {
+        this.openAccountForm('create');
+      });
+      this.renderAccountDetail();
+      const invoicesEmpty = document.getElementById('invoices-container');
+      if (invoicesEmpty) invoicesEmpty.innerHTML = '';
+      return;
+    }
+
     if (filtered.length === 0) {
       grid.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA CONTA — USE [+ NOVA CONTA]</div>`;
     }
@@ -565,6 +718,19 @@ export class KakeiboApp {
       : null;
 
     if (!acc) {
+      if (ACCOUNTS.length === 0) {
+        panel.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-weight: bold; color: var(--c-bone-white);">Nenhuma conta ainda.</div>
+            <div class="micro-label" style="color: var(--c-pale-cyan); line-height: 1.5;">Aha: crie sua conta corrente e, se quiser, um cartão.</div>
+            <button type="button" id="btn-create-first-account-detail" class="pc98-btn btn-primary" style="padding: 8px 12px;">[+ CRIAR PRIMEIRA CONTA]</button>
+          </div>
+        `;
+        document.getElementById('btn-create-first-account-detail')?.addEventListener('click', () => {
+          this.openAccountForm('create');
+        });
+        return;
+      }
       panel.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue);">Selecione uma conta para ver detalhes, editar ou arquivar.</div>`;
       return;
     }
@@ -614,6 +780,7 @@ export class KakeiboApp {
         <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
           <button type="button" id="btn-edit-account" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[EDITAR]</button>
           <button type="button" id="btn-archive-account" class="pc98-btn btn-alert" style="padding: 4px 10px; font-size: 11px;">[ARQUIVAR]</button>
+          <button type="button" id="btn-account-to-journal" class="pc98-btn" style="padding: 4px 10px; font-size: 11px;">[VER NO JOURNAL]</button>
           ${isCredit ? `<button type="button" id="btn-scroll-invoices" class="pc98-btn" style="padding: 4px 10px; font-size: 11px;">[VER FATURAS]</button>` : ''}
         </div>
       </div>
@@ -625,6 +792,11 @@ export class KakeiboApp {
     });
     document.getElementById('btn-archive-account')?.addEventListener('click', () => {
       void this.archiveSelectedAccount();
+    });
+    document.getElementById('btn-account-to-journal')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.switchTab('transactions');
+      this.renderJournalTransactions(this.currentFilterKey);
     });
     document.getElementById('btn-scroll-invoices')?.addEventListener('click', () => {
       pc98Audio.playClick();
@@ -985,14 +1157,42 @@ export class KakeiboApp {
     const container = document.getElementById('journal-rows-container');
     const batchBar = document.getElementById('journal-batch-bar');
     const selectedCountEl = document.getElementById('batch-selected-count');
+    const accountBanner = document.getElementById('journal-account-filter-banner');
 
     if (!container) return;
     container.innerHTML = '';
     this.currentFilterKey = filterKey;
 
+    const accountFilter = this.selectedAccountId
+      ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+      : null;
+
+    if (accountBanner) {
+      if (accountFilter) {
+        accountBanner.classList.remove('hidden');
+        accountBanner.style.display = 'flex';
+        accountBanner.innerHTML = `
+          <span class="micro-label" style="color: var(--c-amber);">CONTA: ${escapeHtml(accountFilter.name)}</span>
+          <button type="button" id="btn-clear-journal-account-filter" class="pc98-btn" style="padding: 2px 8px; font-size: 11px;">[LIMPAR]</button>
+        `;
+        accountBanner.querySelector('#btn-clear-journal-account-filter')?.addEventListener('click', () => {
+          pc98Audio.playClick();
+          this.selectedAccountId = null;
+          this.renderAccounts();
+          this.renderJournalTransactions(this.currentFilterKey);
+        });
+      } else {
+        accountBanner.classList.add('hidden');
+        accountBanner.style.display = 'none';
+        accountBanner.innerHTML = '';
+      }
+    }
+
     const filtered = this.transactions.filter(tx => {
       // Exclude transfers from journal view
       if (tx.type === 'transfer') return false;
+
+      if (this.selectedAccountId && tx.accountId !== this.selectedAccountId) return false;
 
       let matchesFilter = true;
       if (filterKey === 'income') matchesFilter = tx.amountCents > 0;
@@ -1560,22 +1760,119 @@ export class KakeiboApp {
 
   // ── AI RISK CONFIRMATION ──────────────────────────────────────────────────
 
-  private triggerAiRiskConfirmation(diffText: string, onApprove: () => void, onReject?: () => void) {
+  private buildAiConfirmListHtml(items: Array<{ token: string; summary: string; reason: string }>): string {
+    return items
+      .map(
+        (p, idx) =>
+          `<div class="ai-risk-item" data-confirm-idx="${idx}">
+             <div><strong>${escapeHtml(p.summary)}</strong></div>
+             <div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(p.reason)}</div>
+             <div class="ai-risk-item-actions">
+               <button type="button" class="pc98-btn btn-alert btn-ai-approve-one" data-token="${escapeHtml(p.token)}" style="padding: 2px 8px; font-size: 11px;">[APROVAR]</button>
+             </div>
+           </div>`,
+      )
+      .join('');
+  }
+
+  private renderPendingAiConfirmMeta() {
+    const pending = this.pendingAiConfirm;
+    if (!pending) return;
+    const { meta, items } = pending;
+    const count = items.length;
+    meta.innerHTML = `
+      <span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO · ${count}]</span>
+      <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+        <button type="button" class="pc98-btn btn-ai-reject-inline" style="padding: 2px 8px; font-size: 11px;">[REJEITAR]</button>
+        <button type="button" class="pc98-btn btn-alert btn-ai-approve-inline" style="padding: 2px 8px; font-size: 11px;">[APROVAR TODAS]</button>
+      </div>
+      <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">"confirmo" no chat aprova todas</div>
+    `;
+
+    meta.querySelector('.btn-ai-approve-inline')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.approveAllPendingAiConfirm();
+    });
+    meta.querySelector('.btn-ai-reject-inline')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.rejectAllPendingAiConfirm();
+    });
+  }
+
+  private approveOnePendingAiConfirm(token: string) {
+    const pending = this.pendingAiConfirm;
+    if (!pending || this.isTyping) return;
+    const idx = pending.items.findIndex((i) => i.token === token);
+    if (idx < 0) return;
+    pending.items.splice(idx, 1);
+    void this.sendChatMessage(pending.originalMessage, [token], { silentUser: true });
+    if (pending.items.length === 0) {
+      this.pendingAiConfirm = null;
+      this.aiRiskDismiss?.();
+      pending.meta.innerHTML = `<span class="micro-label txt-green">[APROVADO]</span>`;
+      return;
+    }
+    this.renderPendingAiConfirmMeta();
+    this.refreshAiRiskModalContent();
+  }
+
+  private approveAllPendingAiConfirm() {
+    const pending = this.pendingAiConfirm;
+    if (!pending || pending.items.length === 0 || this.isTyping) return;
+    const tokens = pending.items.map((i) => i.token);
+    this.pendingAiConfirm = null;
+    this.aiRiskDismiss?.();
+    pending.meta.innerHTML = `<span class="micro-label txt-green">[APROVANDO…]</span>`;
+    void this.sendChatMessage(pending.originalMessage, tokens, { silentUser: true });
+  }
+
+  private rejectAllPendingAiConfirm() {
+    const pending = this.pendingAiConfirm;
+    this.pendingAiConfirm = null;
+    this.aiRiskReject?.();
+    if (pending) {
+      pending.meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+    }
+  }
+
+  private refreshAiRiskModalContent() {
+    const pending = this.pendingAiConfirm;
+    const diffEl = document.getElementById('ai-risk-diff-text');
+    if (!pending || !diffEl) return;
+    diffEl.innerHTML = this.buildAiConfirmListHtml(pending.items);
+    diffEl.querySelectorAll('.btn-ai-approve-one').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const token = (btn as HTMLElement).dataset.token;
+        if (!token) return;
+        pc98Audio.playSelect();
+        this.approveOnePendingAiConfirm(token);
+      });
+    });
+  }
+
+  private triggerAiRiskConfirmation() {
+    const pending = this.pendingAiConfirm;
     const modal = document.getElementById('modal-ai-risk-confirm');
     const diffEl = document.getElementById('ai-risk-diff-text');
     const approveBtn = document.getElementById('btn-confirm-risk') as HTMLButtonElement | null;
     const rejectBtn = document.getElementById('btn-reject-risk') as HTMLButtonElement | null;
     const closeBtn = document.getElementById('btn-close-risk');
-    if (!modal || !diffEl) return;
-    diffEl.innerHTML = diffText;
+    if (!pending || !modal || !diffEl) return;
+
+    this.refreshAiRiskModalContent();
     modal.classList.remove('hidden');
     pc98Audio.playWarning();
+
     const cleanup = (rejected: boolean) => {
       modal.classList.add('hidden');
       document.removeEventListener('keydown', onKey);
       this.aiRiskReject = null;
       this.aiRiskDismiss = null;
-      if (rejected) onReject?.();
+      if (rejected) {
+        const p = this.pendingAiConfirm;
+        this.pendingAiConfirm = null;
+        if (p) p.meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+      }
     };
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cleanup(true); }
@@ -1583,10 +1880,10 @@ export class KakeiboApp {
     this.aiRiskReject = () => cleanup(true);
     this.aiRiskDismiss = () => cleanup(false);
     if (approveBtn) {
-      approveBtn.onclick = () => { pc98Audio.playSelect(); cleanup(false); onApprove(); };
+      approveBtn.onclick = () => { pc98Audio.playSelect(); this.approveAllPendingAiConfirm(); };
     }
     if (rejectBtn) {
-      rejectBtn.onclick = () => cleanup(true);
+      rejectBtn.onclick = () => this.rejectAllPendingAiConfirm();
       rejectBtn.focus();
     }
     if (closeBtn) closeBtn.onclick = () => cleanup(true);
@@ -1687,8 +1984,12 @@ export class KakeiboApp {
     });
 
     if (tabId === 'chat') {
-      this.setAiDockOpen(true);
-      setTimeout(() => document.getElementById('chat-input-text')?.focus(), 40);
+      if (this.aiDockCollapsed) {
+        this.expandAiDock();
+      } else {
+        this.setAiDockOpen(true);
+        setTimeout(() => document.getElementById('chat-input-text')?.focus(), 40);
+      }
       this.renderDashboardCharts();
       return;
     }
@@ -1934,57 +2235,15 @@ export class KakeiboApp {
     if (result.pendingConfirmations.length === 0) return;
 
     // Nada foi escrito nestas: pede aprovação e reenvia com o token.
-    const pending = result.pendingConfirmations;
-    const tokens = pending.map((p) => p.token);
-    const listHtml = pending
-      .map(
-        (p) =>
-          `<div style="margin-bottom: 8px;">
-             <div><strong>${escapeHtml(p.summary)}</strong></div>
-             <div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(p.reason)}</div>
-           </div>`,
-      )
-      .join('');
+    const items = result.pendingConfirmations.map((p) => ({
+      token: p.token,
+      summary: p.summary,
+      reason: p.reason,
+    }));
 
-    this.pendingAiConfirm = { tokens, originalMessage, meta };
-
-    meta.innerHTML = `
-      <span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO]</span>
-      <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
-        <button type="button" class="pc98-btn btn-ai-reject-inline" style="padding: 2px 8px; font-size: 11px;">[REJEITAR]</button>
-        <button type="button" class="pc98-btn btn-alert btn-ai-approve-inline" style="padding: 2px 8px; font-size: 11px;">[APROVAR]</button>
-      </div>
-    `;
-
-    const approveInline = () => {
-      const pendingConfirm = this.pendingAiConfirm;
-      this.pendingAiConfirm = null;
-      if (!pendingConfirm) return;
-      void this.sendChatMessage(pendingConfirm.originalMessage, pendingConfirm.tokens, { silentUser: true });
-    };
-    const rejectInline = () => {
-      this.pendingAiConfirm = null;
-      this.aiRiskReject?.();
-      meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
-    };
-
-    meta.querySelector('.btn-ai-approve-inline')?.addEventListener('click', () => {
-      pc98Audio.playSelect();
-      this.aiRiskDismiss?.();
-      approveInline();
-    });
-    meta.querySelector('.btn-ai-reject-inline')?.addEventListener('click', () => {
-      pc98Audio.playClick();
-      rejectInline();
-    });
-
-    this.triggerAiRiskConfirmation(listHtml, () => {
-      this.pendingAiConfirm = null;
-      void this.sendChatMessage(originalMessage, tokens, { silentUser: true });
-    }, () => {
-      this.pendingAiConfirm = null;
-      meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
-    });
+    this.pendingAiConfirm = { items, originalMessage, meta };
+    this.renderPendingAiConfirmMeta();
+    this.triggerAiRiskConfirmation();
   }
 
   /** Recarrega o store e redesenha, avisando com opção de desfazer. */
@@ -2248,17 +2507,25 @@ export class KakeiboApp {
       this.advanceAiDialogue();
     });
 
-    // AI DOCK (narrow layouts)
+    // AI DOCK (narrow layouts + collapsed expand)
     const mobileAiBtn = document.getElementById('btn-mobile-ai');
     const closeAiDockBtn = document.getElementById('btn-close-ai-dock');
     mobileAiBtn?.addEventListener('click', () => {
       pc98Audio.playClick();
+      if (this.aiDockCollapsed) {
+        this.expandAiDock();
+        return;
+      }
       const open = !document.body.classList.contains('ai-dock-open');
       this.setAiDockOpen(open);
       if (open) document.getElementById('chat-input-text')?.focus();
     });
     closeAiDockBtn?.addEventListener('click', () => {
       pc98Audio.playClick();
+      if (this.aiDockCollapsed) {
+        this.expandAiDock();
+        return;
+      }
       this.setAiDockOpen(false);
     });
 
@@ -2606,19 +2873,16 @@ export class KakeiboApp {
       if (!query) return;
 
       if (this.pendingAiConfirm && AI_CONFIRM_RE.test(query)) {
-        const pending = this.pendingAiConfirm;
-        this.pendingAiConfirm = null;
-        this.aiRiskDismiss?.();
         textInput.value = '';
         const streamBox = document.getElementById('chat-stream-box');
         if (streamBox) {
           const note = document.createElement('div');
           note.className = 'chat-bubble-row ai-side';
-          note.innerHTML = `<div class="chat-bubble ai-bubble"><div class="micro-label txt-green">Confirmação recebida.</div></div>`;
+          note.innerHTML = `<div class="chat-bubble ai-bubble"><div class="micro-label txt-green">Confirmação recebida — aprovando todas.</div></div>`;
           streamBox.appendChild(note);
           streamBox.scrollTop = streamBox.scrollHeight;
         }
-        void this.sendChatMessage(pending.originalMessage, pending.tokens, { silentUser: true });
+        this.approveAllPendingAiConfirm();
         return;
       }
 

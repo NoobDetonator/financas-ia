@@ -1,37 +1,41 @@
 ---
 name: KAKEIBO.SYS
 colors:
-  void-black: '#0A0A14'
-  deep-navy: '#14142B'
-  indigo: '#22224A'
-  slate: '#333C57'
-  grey-blue: '#566C86'
-  pale-grey: '#C0CBDC'
-  bone-white: '#F2F0E5'
+  void-black: '#06060F'
+  deep-navy: '#101028'
+  indigo: '#1B1B3C'
+  slate: '#3A4568'
+  grey-blue: '#6B7F9C'
+  pale-grey: '#A7B6CC'
+  bone-white: '#F0EEE6'
   pure-white: '#FFFFFF'
-  blue: '#3B5DC9'
-  sky: '#41A6F6'
-  pale-cyan: '#73EFF7'
-  cyan: '#73EFF7'
-  green: '#38B764'
-  amber: '#F4B41B'
-  pink: '#E5537A'
-  purple: '#A23E8C'
-  tan: '#E4A672'
+  blue: '#4A6AD4'
+  sky: '#4BB0F7'
+  pale-cyan: '#5CE8F2'
+  cyan: '#5CE8F2'
+  green: '#3CC976'
+  amber: '#F0B429'
+  pink: '#E84B72'
+  purple: '#B04A98'
+  tan: '#E6A878'
 themes:
   dark:
-    chassis: deep-navy
-    panel: indigo
-    well: void-black
-    text: bone-white
-    chart-bg: '#0A0A14'
+    chassis: '#101028'
+    panel: '#1B1B3C'
+    well: '#06060F'
+    raised: '#2A2A52'
+    text: '#F0EEE6'
+    muted: '#A7B6CC'
+    chart-bg: '#06060F'
   light:
-    chassis: '#EDE9DC'
-    panel: '#F2F0E5'
-    well: '#C8C2B0'
-    text: '#1A1A2E'
-    chrome: '#2E2E5A'
-    chart-bg: '#F7F4EA'
+    chassis: '#C5C2D4'
+    panel: '#F6F5FB'
+    well: '#FFFFFF'
+    raised: '#E5E3EF'
+    text: '#141428'
+    muted: '#3F3F66'
+    chrome: '#282850'
+    chart-bg: '#FFFFFF'
 typography:
   display-currency:
     fontFamily: VT323
@@ -129,7 +133,9 @@ Never encode budget overrun with color alone — keep `[ESTOUROU!]` / `[RISCO]` 
 ### Themes
 **Default theme is light.** Toggle via status bar `THEME: DARK/LIGHT` (`data-theme` on `<html>`, persisted in `localStorage` key `kakeibo.theme`; unset → light).
 
-Light mode is the **same product**: chassis `#D6D0BC`, windows `#F4F1E6`, raised controls `#E4DFCC` (must differ from windows), wells `#FFFFFF`, chrome `#2F2F5C`. Use semantic surfaces (`--c-surface-*`, `--c-border-strong`, `--shadow-hard`) — never invert `--c-void-black` into a light border color. Accents are darkened for WCAG AA on paper. Title/status chrome keep light-on-dark ink via `--c-paper-fixed`. Chart hosts fill `--c-chart-bg` (= `--c-surface-well`) so canvases never float as a mismatched square.
+Light mode is the **same product**, cooled for contrast: chassis `#C5C2D4`, windows `#F6F5FB`, raised controls `#E5E3EF` (must differ from windows), wells `#FFFFFF`, chrome `#282850`. Prefer cool paper over warm cream — keeps Neo-Retro identity without the terracotta/cream cluster. Use semantic surfaces (`--c-surface-*`, `--c-border-strong`, `--shadow-hard`) — never invert `--c-void-black` into a light border color. Accents are darkened for WCAG AA on paper. Title/status chrome keep light-on-dark ink via `--c-paper-fixed`. Chart hosts fill `--c-chart-bg` (= `--c-surface-well`) so canvases never float as a mismatched square.
+
+Dark mode elevates deliberately: well `#06060F` → window `#1B1B3C` → raised `#2A2A52` on chassis `#101028`, with muted text `#A7B6CC` for AA on indigo panels.
 
 Never introduce soft purple-on-white gradients, glassmorphism, or rounded pill chrome. Sharp corners only.
 

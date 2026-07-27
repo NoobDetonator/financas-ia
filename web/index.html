@@ -386,18 +386,20 @@
                       [? SAC vs PRICE]
                     </button>
                   </div>
-                  <table class="text-sm" style="width: 100%; border-collapse: collapse; font-family: var(--font-primary);">
-                    <thead>
-                      <tr class="text-micro" style="background: var(--c-slate); color: var(--c-bone-white); text-align: left; font-family: var(--font-micro);">
-                        <th style="padding: 6px;">PARCELA</th>
-                        <th style="padding: 6px;">PRESTAÇÃO</th>
-                        <th style="padding: 6px;">JUROS</th>
-                        <th style="padding: 6px;">AMORTIZAÇÃO</th>
-                        <th style="padding: 6px;">SALDO DEVEDOR</th>
-                      </tr>
-                    </thead>
-                    <tbody id="amortization-table-body"></tbody>
-                  </table>
+                  <div class="table-scroll">
+                    <table class="text-sm" style="width: 100%; border-collapse: collapse; font-family: var(--font-primary);">
+                      <thead>
+                        <tr class="text-micro" style="background: var(--c-slate); color: var(--c-bone-white); text-align: left; font-family: var(--font-micro);">
+                          <th style="padding: 6px;">PARCELA</th>
+                          <th style="padding: 6px;">PRESTAÇÃO</th>
+                          <th style="padding: 6px;">JUROS</th>
+                          <th style="padding: 6px;">AMORTIZAÇÃO</th>
+                          <th style="padding: 6px;">SALDO DEVEDOR</th>
+                        </tr>
+                      </thead>
+                      <tbody id="amortization-table-body"></tbody>
+                    </table>
+                  </div>
                   <button id="btn-simulate-early-pay" class="pc98-btn btn-alert" style="align-self: flex-end;">[SIMULAR ANTECIPAÇÃO]</button>
                 </div>
               </div>
@@ -436,6 +438,8 @@
                 <div class="title-label"><span>JOURNAL DE TRANSAÇÕES</span></div>
               </div>
               <div class="window-content" style="flex: 1; display: flex; flex-direction: column; padding: 8px;">
+
+                <div id="journal-account-filter-banner" class="pc98-well journal-account-filter-banner hidden" style="display: none; margin-bottom: 8px; padding: 6px 8px; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap;"></div>
 
                 <!-- SEARCH & CATEGORY FILTER STRIP -->
                 <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: center;">
@@ -503,7 +507,7 @@
                   </div>
                 </div>
 
-                <div style="display: grid; grid-template-columns: 220px 1fr; gap: 10px;">
+                <div class="category-detail-split">
                   <div class="pc98-well" id="cat-detail-picker"></div>
                   <div class="pc98-well" id="cat-breakdown-bars"></div>
                 </div>
@@ -739,10 +743,15 @@
 
         <!-- ==================== RIGHT SIDEBAR AI COMMUNICATOR MODULE ==================== -->
         <aside class="right-ai-sidebar" id="ai-dock" aria-label="KAKEIBO.AI communicator">
+          <div class="ai-resize-handle" id="ai-resize-handle" role="separator" aria-orientation="vertical" aria-label="Redimensionar painel de IA" tabindex="0"></div>
+          <button type="button" id="btn-expand-ai-dock" class="ai-expand-rail" aria-label="Expandir painel de IA">KAKEIBO.AI</button>
           <section class="ai-dialogue-window" style="flex: 1; display: flex; flex-direction: column;">
             <div class="ai-nameplate" style="display: flex; justify-content: space-between; align-items: center;">
               <span>KAKEIBO.AI</span>
-              <button type="button" id="btn-close-ai-dock" class="win-btn btn-mobile-ai" aria-label="Fechar painel de IA">x</button>
+              <div class="ai-nameplate-controls">
+                <button type="button" id="btn-minimize-ai-dock" class="win-btn" aria-label="Minimizar painel de IA" title="Minimizar">_</button>
+                <button type="button" id="btn-close-ai-dock" class="win-btn btn-mobile-ai" aria-label="Fechar painel de IA">x</button>
+              </div>
             </div>
             <div class="ai-body" style="flex: 1; display: flex; flex-direction: column; justify-content: space-between;">
 
@@ -907,10 +916,10 @@
           OPERAÇÃO DE ALTO RISCO DETECTADA
         </div>
         <div id="ai-risk-diff-text" style="font-size: 14px; color: var(--c-bone-white);" class="pc98-well"></div>
-        <div class="micro-label" style="color: var(--c-grey-blue);">Digite "confirmo" no chat ou use os botões.</div>
-        <div style="display: flex; gap: 8px; justify-content: flex-end;">
-          <button id="btn-reject-risk" class="pc98-btn">[REJEITAR]</button>
-          <button id="btn-confirm-risk" class="pc98-btn btn-alert">[APROVAR]</button>
+        <div class="micro-label" style="color: var(--c-grey-blue);">Aprove cada operação com [APROVAR], ou [APROVAR TODAS]. Digite "confirmo" no chat para aprovar TODAS as restantes.</div>
+        <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+          <button id="btn-reject-risk" class="pc98-btn">[REJEITAR TODAS]</button>
+          <button id="btn-confirm-risk" class="pc98-btn btn-alert">[APROVAR TODAS]</button>
         </div>
       </div>
     </div>
@@ -918,7 +927,7 @@
 
   <!-- SYSTEM QUICK HELP GUIDE MODAL -->
   <div id="modal-help-guide" class="modal-backdrop hidden">
-    <div class="pc98-window gold-frame" style="width: 520px;">
+    <div class="pc98-window gold-frame" style="width: 520px; max-width: min(520px, calc(100% - 24px));">
       <div class="window-title-bar">
         <div class="title-label"><span>✦ SYSTEM HELP GUIDE ✦</span></div>
         <div class="window-controls"><button type="button" id="btn-close-help" class="win-btn" aria-label="Fechar">x</button></div>

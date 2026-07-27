@@ -82,16 +82,9 @@ export function authConfig(): { enabled: boolean; reason?: string } {
   return { enabled: false };
 }
 
-/** Chave da IA para o provedor configurado. */
+/** Chave da IA (DeepSeek). */
 export function aiApiKey(): string {
-  switch (env.AI_PROVIDER) {
-    case 'deepseek':
-      return env.DEEPSEEK_API_KEY;
-    case 'anthropic':
-      return env.ANTHROPIC_API_KEY;
-    case 'openai':
-      return env.OPENAI_API_KEY;
-  }
+  return env.DEEPSEEK_API_KEY;
 }
 
 export function hasAiKey(): boolean {

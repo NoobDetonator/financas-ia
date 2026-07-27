@@ -19,7 +19,6 @@
     "db:seed": "tsx src/db/seed.ts",
     "db:studio": "drizzle-kit studio",
     "chat": "tsx src/cli/chat.ts",
-    "cli": "tsx src/cli/index.ts",
     "dev:api": "tsx watch src/main.ts",
     "dev:web": "npm --prefix web run dev",
     "build:web": "npm --prefix web run build",

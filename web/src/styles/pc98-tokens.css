@@ -3,7 +3,7 @@
    Authentic NEC PC-9801 16-Color Palette, Double-Bevel Windows & CRT Aesthetics
    ========================================================================== */
 
-@import url('https://fonts.googleapis.com/css2?family=DotGothic16&family=Silkscreen&family=VT323&display=swap');
+/* Fonts loaded via <link> in index.html (avoids render-blocking CSS @import). */
 
 :root {
   /* --- 16-COLOR AUTHENTIC PC-98 PALETTE (DARK DEFAULT) --- */
@@ -1335,6 +1335,27 @@ body.ai-dock-open .right-ai-sidebar {
     max-height: calc(100vh - 24px);
     overflow: auto;
   }
+
+  .accounts-cards-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .split-list-sidebar,
+  .split-list-sidebar-wide {
+    grid-template-columns: 1fr !important;
+  }
+
+  .add-cat-tile-grid {
+    grid-template-columns: repeat(2, 1fr) !important;
+  }
+
+  #debts-cards-container {
+    grid-template-columns: 1fr !important;
+  }
+
+  .invoice-metrics-grid {
+    grid-template-columns: 1fr 1fr !important;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -1713,6 +1734,36 @@ body.ai-dock-open .right-ai-sidebar {
 
 .ai-thinking span:nth-child(2) { animation-delay: 150ms; }
 .ai-thinking span:nth-child(3) { animation-delay: 300ms; }
+
+.accounts-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 12px;
+}
+
+.split-list-sidebar {
+  display: grid;
+  grid-template-columns: 1fr 280px;
+  gap: 12px;
+}
+
+.split-list-sidebar-wide {
+  display: grid;
+  grid-template-columns: 1fr 300px;
+  gap: 12px;
+}
+
+.add-cat-tile-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
+
+.invoice-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+}
 
 @keyframes ai-pulse {
   0%, 50% { opacity: 1; }

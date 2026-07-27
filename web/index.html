@@ -5,6 +5,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>KAKEIBO.SYS — PC-98 Personal Finance Manager & AI Assistant</title>
   <link rel="icon" type="image/svg+xml" href="./favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Silkscreen&family=VT323&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="./src/styles/pc98-tokens.css" />
   <script>
     // Persist theme before paint to avoid flash
@@ -106,7 +109,7 @@
           <span class="status-signal">SIGNAL: 100% ▓▒░</span>
           <button id="btn-mobile-ai" class="status-btn btn-mobile-ai help-btn" type="button" aria-controls="ai-dock" aria-expanded="false">[AI]</button>
           <button id="btn-open-help" class="status-btn help-btn">[? HELP]</button>
-          <button id="btn-toggle-theme" class="status-btn" type="button" aria-pressed="false" title="Alternar tema claro/escuro">THEME: DARK</button>
+          <button id="btn-toggle-theme" class="status-btn" type="button" aria-pressed="true" title="Alternar tema claro/escuro">THEME: LIGHT</button>
           <button id="btn-toggle-sound" class="status-btn" type="button" aria-pressed="true">SND: ON</button>
           <button id="btn-toggle-crt" class="status-btn" type="button" aria-pressed="true">CRT: ON</button>
         </div>
@@ -203,12 +206,6 @@
                 <span class="nav-hotkey-badge">P</span>
                 <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M7 1a3 3 0 110 6 3 3 0 010-6zM2 12c0-3 2.2-5 5-5s5 2 5 5v1H2v-1z"/></svg>
                 <span>PERFIL</span>
-              </button>
-
-              <button class="sidebar-item-btn" data-tab="style-guide">
-                <span class="nav-hotkey-badge">9</span>
-                <svg class="nav-icon" viewBox="0 0 14 14" aria-hidden="true"><path fill="currentColor" d="M2 2h4v4H2V2zm6 0h4v4H8V2zM2 8h4v4H2V8zm6 0h4v4H8V8z"/></svg>
-                <span>STYLE GUIDE</span>
               </button>
 
               <button class="sidebar-item-btn" data-tab="add" style="margin-top: 4px; border-color: var(--c-amber);">
@@ -351,20 +348,13 @@
                 <div class="title-label"><span>CONTAS E CARTÕES</span></div>
               </div>
               <div class="window-content" style="overflow-y: auto; gap: 12px;">
-                <div id="accounts-cards-grid" style="display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px;">
+                <div style="display: flex; justify-content: flex-end;">
+                  <button type="button" id="btn-new-account" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA CONTA]</button>
+                </div>
+                <div id="accounts-cards-grid" class="accounts-cards-grid">
                   <!-- Cards rendered dynamically -->
                 </div>
-
-                <div class="pc98-well" style="display: flex; flex-direction: column; gap: 10px;">
-                  <div class="micro-label text-xs" style="color: var(--c-pink);">NUBANK CRÉDITO — FATURA ATUAL</div>
-                  <div style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;">
-                    <div class="pc98-well"><div class="micro-label">FECHAMENTO:</div><div class="text-md">Dia 28</div></div>
-                    <div class="pc98-well"><div class="micro-label">VENCIMENTO:</div><div class="text-md txt-amber">Dia 05</div></div>
-                    <div class="pc98-well"><div class="micro-label">DÍVIDA FATURA:</div><div class="num-currency text-lg txt-pink">R$ 1.840,50</div></div>
-                    <div class="pc98-well"><div class="micro-label">DISPONÍVEL:</div><div class="num-currency text-lg txt-green">R$ 6.159,50</div></div>
-                  </div>
-                  <button id="btn-pay-invoice" class="pc98-btn btn-primary" style="align-self: flex-end;">[PAGAR FATURA]</button>
-                </div>
+                <div id="invoices-container" class="invoices-stack" style="display: flex; flex-direction: column; gap: 10px;"></div>
               </div>
             </article>
           </div>
@@ -417,12 +407,12 @@
                     <div class="micro-label">PATRIMÔNIO EM INVESTIMENTOS</div>
                     <div id="val-consolidated-portfolio" class="num-currency text-display txt-cyan">R$ 0,00</div>
                   </div>
-                  <div class="micro-label txt-green" style="font-size: 16px;">RENTABILIDADE: +12,1%</div>
+                  <div id="val-portfolio-return" class="micro-label txt-green" style="font-size: 16px;">RENTABILIDADE: —</div>
                 </div>
 
                 <!-- CANDLESTICK PRICE CHART -->
                 <div class="pc98-well" style="display: flex; flex-direction: column; gap: 6px;">
-                  <canvas id="candlestick-chart-canvas" class="chart-canvas" role="img" aria-label="Candlestick BTC/BRL diário" style="width: 100%; height: 200px;"></canvas>
+                  <canvas id="candlestick-chart-canvas" class="chart-canvas" role="img" aria-label="Cotações diárias indisponíveis neste build" style="width: 100%; height: 200px;"></canvas>
                 </div>
 
                 <div class="pc98-well" id="holdings-table-container"></div>
@@ -441,7 +431,8 @@
                 <!-- SEARCH & CATEGORY FILTER STRIP -->
                 <div style="display: flex; gap: 8px; margin-bottom: 8px; flex-wrap: wrap; align-items: center;">
                   <div class="pc98-well" style="padding: 4px 8px; flex: 1;">
-                    <input type="text" id="journal-search-input" class="pc98-input" style="border: none; background: transparent; width: 100%; font-size: 14px;" placeholder="Filtrar por texto..." />
+                    <label class="visually-hidden" for="journal-search-input">Filtrar journal</label>
+                    <input type="search" id="journal-search-input" class="pc98-input" style="border: none; background: transparent; width: 100%; font-size: 14px;" placeholder="Filtrar por texto..." />
                   </div>
                   <div id="tx-filter-strip" style="display: flex; gap: 6px; flex-wrap: wrap;">
                     <button class="pc98-btn active btn-primary filter-btn" data-filter="all">[ALL]</button>
@@ -521,24 +512,24 @@
               <div class="window-content" style="overflow-y: auto; padding: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <div class="micro-label" style="color: var(--c-pale-cyan);">CONTAS FIXAS E ASSINATURAS RECORRENTES (MATERIALIZAÇÃO ANTECIPADA)</div>
-                  <button class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA RECORRÊNCIA]</button>
+                  <button type="button" id="btn-new-recurrence" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA RECORRÊNCIA]</button>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 280px; gap: 12px;">
+                <div class="split-list-sidebar">
                   <div id="recurrences-list"></div>
                   <div style="display: flex; flex-direction: column; gap: 10px;">
                     <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
                       <div class="micro-label" style="color: var(--c-amber);">RESUMO FIXO MENSAL</div>
                       <div style="display: flex; justify-content: space-between; font-size: 13px;">
                         <span>RECEITAS FIXAS:</span>
-                        <span class="num-currency txt-green">+R$ 7.800,00</span>
+                        <span id="rec-sum-income" class="num-currency txt-green">+R$ 0,00</span>
                       </div>
                       <div style="display: flex; justify-content: space-between; font-size: 13px;">
                         <span>DESPESAS FIXAS:</span>
-                        <span class="num-currency txt-pink">-R$ 2.920,80</span>
+                        <span id="rec-sum-expense" class="num-currency txt-pink">-R$ 0,00</span>
                       </div>
                       <div style="border-top: 1px dotted var(--c-slate); padding-top: 6px; display: flex; justify-content: space-between; font-size: 14px; font-weight: bold;">
                         <span>BALANÇO FIXO:</span>
-                        <span class="num-currency txt-green">+R$ 4.879,20</span>
+                        <span id="rec-sum-balance" class="num-currency txt-green">+R$ 0,00</span>
                       </div>
                     </div>
                     <div class="pc98-well" style="font-size: 12px; line-height: 1.5; color: var(--c-pale-grey);">
@@ -560,29 +551,29 @@
               <div class="window-content" style="overflow-y: auto; padding: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <div class="micro-label" style="color: var(--c-amber);">METAS DE ECONOMIA E CAIXINHAS VIRTUAIS</div>
-                  <button class="pc98-btn btn-gold" style="padding: 4px 10px; font-size: 11px;">[+ NOVA META]</button>
+                  <button type="button" id="btn-new-goal" class="pc98-btn btn-gold" style="padding: 4px 10px; font-size: 11px;">[+ NOVA META]</button>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 280px; gap: 12px;">
+                <div class="split-list-sidebar">
                   <div id="goals-list"></div>
                   <div style="display: flex; flex-direction: column; gap: 10px;">
                     <div class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
                       <div class="micro-label" style="color: var(--c-amber);">RESUMO DE RESERVAS</div>
                       <div style="display: flex; justify-content: space-between; font-size: 13px;">
                         <span>TOTAL ACUMULADO:</span>
-                        <span class="num-currency txt-green">R$ 9.300,00</span>
+                        <span id="goals-sum-saved" class="num-currency txt-green">R$ 0,00</span>
                       </div>
                       <div style="display: flex; justify-content: space-between; font-size: 13px;">
                         <span>ALVO TOTAL:</span>
-                        <span class="num-currency txt-cyan">R$ 42.000,00</span>
+                        <span id="goals-sum-target" class="num-currency txt-cyan">R$ 0,00</span>
                       </div>
                       <div style="border-top: 1px dotted var(--c-slate); padding-top: 6px; display: flex; justify-content: space-between; font-size: 14px; font-weight: bold;">
                         <span>PROGRESSO GLOBAL:</span>
-                        <span class="num-currency txt-amber">22,1%</span>
+                        <span id="goals-sum-progress" class="num-currency txt-amber">0%</span>
                       </div>
                     </div>
-                    <div class="pc98-well" style="font-size: 12px; line-height: 1.5; color: var(--c-pale-grey);">
-                      <div class="micro-label" style="color: var(--c-pink); margin-bottom: 4px;">ALERTA DE APORTE:</div>
-                      A meta <strong>Viagem para o Chile</strong> exige um aporte de <span class="txt-amber">R$ 1.187,50/mês</span> para ser concluída na data prevista (15/03/2027).
+                    <div id="goals-alert-box" class="pc98-well" style="font-size: 12px; line-height: 1.5; color: var(--c-pale-grey);">
+                      <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+                      Nenhuma meta ativa. Crie a primeira com [+ NOVA META].
                     </div>
                   </div>
                 </div>
@@ -599,14 +590,14 @@
               <div class="window-content" style="overflow-y: auto; padding: 10px;">
                 <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
                   <div class="micro-label" style="color: var(--c-sky);">REGRAS AUTOMÁTICAS DE CATEGORIZAÇÃO VIA IA</div>
-                  <button class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA REGRA]</button>
+                  <button type="button" id="btn-new-rule" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA REGRA]</button>
                 </div>
-                <div style="display: grid; grid-template-columns: 1fr 300px; gap: 12px;">
+                <div class="split-list-sidebar split-list-sidebar-wide">
                   <div id="rules-list"></div>
                   <div class="pc98-well" style="display: flex; flex-direction: column; gap: 10px;">
                     <div class="micro-label" style="color: var(--c-pale-cyan);">TESTADOR DE REGRAS DE CATEGORIZAÇÃO</div>
                     <div class="pc98-form-group">
-                      <label class="micro-label">TEXTO DA TRANSAÇÃO / EXTRATO:</label>
+                      <label class="micro-label" for="rule-test-input">TEXTO DA TRANSAÇÃO / EXTRATO:</label>
                       <input type="text" id="rule-test-input" class="pc98-input" placeholder="Ex: UBER TRIP SANTO AMARO" style="font-size: 13px;" />
                     </div>
                     <button id="btn-test-rule" class="pc98-btn btn-primary" style="padding: 6px;">[EXECUTAR TESTE DE CORRESPONDÊNCIA]</button>
@@ -690,42 +681,15 @@
                       <tr style="background: var(--c-slate); color: var(--c-bone-white); font-family: var(--font-micro); font-size: 10px; text-align: left;">
                         <th style="padding: 6px;">DATA</th>
                         <th style="padding: 6px;">ARQUIVO</th>
-                        <th style="padding: 6px;">BANCO / ORIGEM</th>
+                        <th style="padding: 6px;">CONTA</th>
                         <th style="padding: 6px;">TRANSAÇÕES</th>
                         <th style="padding: 6px; text-align: right;">STATUS</th>
                       </tr>
                     </thead>
-                    <tbody>
-                      <tr style="border-bottom: 1px dotted var(--c-grey-blue);">
-                        <td style="padding: 6px;">15/07/2026</td>
-                        <td style="padding: 6px;" class="txt-cyan">extrato_nubank_2026_07.ofx</td>
-                        <td style="padding: 6px;">Nubank Crédito</td>
-                        <td style="padding: 6px;">18 registros</td>
-                        <td style="padding: 6px; text-align: right;" class="txt-green">[INCORPORADO]</td>
-                      </tr>
-                      <tr style="border-bottom: 1px dotted var(--c-grey-blue);">
-                        <td style="padding: 6px;">01/07/2026</td>
-                        <td style="padding: 6px;" class="txt-cyan">extrato_bb_2026_06.csv</td>
-                        <td style="padding: 6px;">Banco do Brasil</td>
-                        <td style="padding: 6px;">24 registros</td>
-                        <td style="padding: 6px; text-align: right;" class="txt-green">[INCORPORADO]</td>
-                      </tr>
-                    </tbody>
+                    <tbody id="import-history-body"></tbody>
                   </table>
                 </div>
 
-              </div>
-            </article>
-          </div>
-
-          <!-- VIEW 9: STYLE GUIDE -->
-          <div id="view-style-guide" class="view-panel">
-            <article class="pc98-window accent-header" style="flex: 1;">
-              <div class="window-title-bar">
-                <div class="title-label"><span>STYLE GUIDE</span></div>
-              </div>
-              <div class="window-content" style="overflow-y: auto;">
-                <div id="swatch-grid-container" class="swatch-grid"></div>
               </div>
             </article>
           </div>
@@ -739,23 +703,23 @@
               <div class="window-content">
                 <form id="form-full-add-tx" style="display: flex; flex-direction: column; gap: 12px;">
                   <div class="pc98-form-group">
-                    <label class="micro-label">VALOR (R$)</label>
-                    <input type="number" step="0.01" min="0.01" id="full-input-amount" class="pc98-input" required />
+                    <label class="micro-label" for="full-input-amount">VALOR (R$)</label>
+                    <input type="number" step="0.01" min="0.01" id="full-input-amount" name="amount" class="pc98-input" required />
                   </div>
                   <div class="pc98-form-group">
-                    <label class="micro-label">ESTABELECIMENTO</label>
-                    <input type="text" id="full-input-memo" class="pc98-input" required />
+                    <label class="micro-label" for="full-input-memo">ESTABELECIMENTO</label>
+                    <input type="text" id="full-input-memo" name="memo" class="pc98-input" required />
                   </div>
                   <div class="pc98-form-group">
-                    <label class="micro-label">CONTA</label>
-                    <select id="full-input-account" class="pc98-input" required></select>
+                    <label class="micro-label" for="full-input-account">CONTA</label>
+                    <select id="full-input-account" name="account" class="pc98-input" required></select>
                   </div>
                   <div class="pc98-form-group">
-                    <label class="micro-label">DATA</label>
-                    <input type="date" id="full-input-date" class="pc98-input" required />
+                    <label class="micro-label" for="full-input-date">DATA</label>
+                    <input type="date" id="full-input-date" name="date" class="pc98-input" required />
                   </div>
-                  <div class="micro-label">CATEGORIA</div>
-                  <div id="add-cat-tile-grid" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;"></div>
+                  <div class="micro-label" id="add-cat-label">CATEGORIA</div>
+                  <div id="add-cat-tile-grid" class="add-cat-tile-grid" role="group" aria-labelledby="add-cat-label"></div>
                   <button type="submit" class="pc98-btn btn-primary text-ui" style="padding: 12px;">[REGISTRAR]</button>
                 </form>
               </div>
@@ -804,10 +768,11 @@
               <!-- INPUT FORM IN RIGHT PANEL -->
               <form id="chat-input-form" style="display: flex; gap: 6px; margin-top: 8px;">
                 <div class="pc98-well" style="flex: 1; padding: 4px 6px; display: flex; align-items: center;">
+                  <label class="visually-hidden" for="chat-input-text">Mensagem para a IA</label>
                   <input type="text" id="chat-input-text" class="pc98-input" style="border: none; background: transparent; width: 100%; font-size: 13px;" placeholder='Pergunte ou lance: "gastei 45 no mercado"' autocomplete="off" />
                   <span class="blinking-cursor" aria-hidden="true"></span>
                 </div>
-                <button type="submit" class="pc98-btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
+                <button type="submit" id="btn-send-chat" class="pc98-btn btn-primary" style="padding: 6px 12px; font-size: 12px;" aria-label="Enviar">
                   SEND
                 </button>
               </form>
@@ -921,10 +886,10 @@
   </div>
 
   <!-- AI RISK CONFIRMATION PREVIEW MODAL -->
-  <div id="modal-ai-risk-confirm" class="modal-backdrop hidden">
+  <div id="modal-ai-risk-confirm" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="ai-risk-title">
     <div class="pc98-window pink-frame" style="width: 500px; max-width: 90%;">
       <div class="window-title-bar">
-        <div class="title-label"><span>AI ACTION CONFIRMATION</span></div>
+        <div class="title-label"><span id="ai-risk-title">AI ACTION CONFIRMATION</span></div>
         <div class="window-controls"><button type="button" id="btn-close-risk" class="win-btn" aria-label="Fechar">x</button></div>
       </div>
       <div class="window-content" style="gap: 12px;">
@@ -952,7 +917,7 @@
         <div class="pc98-well">
           <div class="micro-label text-xs" style="color: var(--c-sky);">ATALHOS E NAVEGAÇÃO:</div>
           <div class="text-sm" style="line-height: 1.6; color: var(--c-bone-white);">
-            • Teclas <span class="nav-hotkey-badge">1</span>, <span class="nav-hotkey-badge">3</span>–<span class="nav-hotkey-badge">9</span>, <span class="nav-hotkey-badge">R</span>/<span class="nav-hotkey-badge">M</span>/<span class="nav-hotkey-badge">G</span>/<span class="nav-hotkey-badge">F</span> trocam telas.<br/>
+            • Teclas <span class="nav-hotkey-badge">1</span>, <span class="nav-hotkey-badge">3</span>–<span class="nav-hotkey-badge">8</span>, <span class="nav-hotkey-badge">R</span>/<span class="nav-hotkey-badge">M</span>/<span class="nav-hotkey-badge">G</span>/<span class="nav-hotkey-badge">F</span> trocam telas.<br/>
             • <span class="nav-hotkey-badge">2</span> foca o painel KAKEIBO.AI à direita (overlay no mobile).<br/>
             • No chat: perguntas ou lançamentos em linguagem natural.<br/>
             • <span class="nav-hotkey-badge">Esc</span> fecha modais / painel IA. <span class="nav-hotkey-badge">F1</span> abre este guia.

@@ -1,12 +1,10 @@
 /**
  * Serve a interface compilada.
  *
- * Em produção o Fastify entrega os arquivos de `web/dist`, então tudo roda em um
- * processo e uma porta só: `npm start` sobe a API e a interface juntas, e o
- * acesso pelo celular é um endereço único.
- *
- * Em desenvolvimento isto fica **desligado** — o Vite serve a interface na 3000
- * com recarga automática e faz proxy de `/api` para cá.
+ * Em produção (e também em desenvolvimento quando `web/dist` existe) o Fastify
+ * entrega os arquivos estáticos numa porta só — o fluxo do `INICIAR.bat` /
+ * `npm start`. O Vite na 3000 continua disponível para HMR: ele faz proxy de
+ * `/api` para cá.
  *
  * Usa `@fastify/static` na versão 10, que corrigiu a falha de path traversal das
  * versões 9.x. Servir arquivo à mão seria uma dependência a menos, mas normalizar
@@ -19,7 +17,6 @@ import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import fastifyStatic from '@fastify/static';
 import type { FastifyInstance } from 'fastify';
-import { isProduction } from '../config/env.js';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
 export const webDist = resolve(projectRoot, 'web', 'dist');
@@ -63,23 +60,19 @@ export interface WebSetupResult {
  * diz o que fazer — melhor que falhar a partida por causa do frontend.
  */
 export async function registerWeb(app: FastifyInstance): Promise<WebSetupResult> {
-  if (!isProduction) {
-    return {
-      enabled: false,
-      reason: 'Em desenvolvimento a interface é servida pelo Vite (npm run dev na pasta web).',
-    };
-  }
-
   if (!existsSync(resolve(webDist, 'index.html'))) {
     return {
       enabled: false,
-      reason: `Interface não compilada. Rode: cd web && npm run build`,
+      reason: `Interface não compilada. Rode: npm run build:web (ou npm run build)`,
     };
   }
 
   await app.register(fastifyStatic, {
     root: webDist,
     prefix: '/',
+    // wildcard:false evita engolir rotas da API registradas depois em alguns setups;
+    // o fallback SPA fica no notFoundHandler de app.ts.
+    wildcard: false,
     index: ['index.html'],
     // Os assets do Vite têm hash no nome, então podem ser cacheados agressivamente.
     // O index.html não: é ele que aponta para os hashes novos.

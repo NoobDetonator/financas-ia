@@ -224,8 +224,8 @@ function adaptAccount(account: ApiAccount): Account {
     color: account.color ?? '#566C86',
     icon: account.icon ?? iconForKind(account.kind),
     aliases: account.aliases ?? [],
-    hasDebitCard: account.hasDebitCard,
-    debitIsVirtual: account.debitIsVirtual,
+    hasDebitCard: account.hasDebitCard ?? false,
+    debitIsVirtual: account.debitIsVirtual ?? false,
     isArchived: account.isArchived,
     sortOrder: account.sortOrder,
   };
@@ -431,7 +431,7 @@ export async function loadAll(): Promise<LoadReport> {
           closingDay: a.card.closingDay,
           dueDay: a.card.dueDay,
           paymentAccountId: a.card.paymentAccountId ?? '',
-          isVirtual: a.card.isVirtual,
+          isVirtual: a.card.isVirtual ?? false,
         }));
     }),
     settle('saldos', api.balances(), (rows) => {

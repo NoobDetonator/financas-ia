@@ -59,3 +59,12 @@ desktop.ini
 .agents/
 .codex/
 .impeccable/
+
+# ── Artefatos locais de teste / agente ─────────────────────────────────────
+# Smoke E2E local pode carregar APP_PASSWORD do ambiente; não versionar dumps.
+scripts/smoke-e2e.mjs
+scripts/results/
+/tmp/
+*.ck
+artifacts/
+/opt/cursor/artifacts/

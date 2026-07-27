@@ -262,11 +262,14 @@ export async function chatStream(userMessage: string, options: ChatOptions = {})
         const output = call.output as Record<string, unknown> | undefined;
         if (output?.needsConfirmation !== true) continue;
 
+        const token = String(output.confirmationToken ?? '');
+        if (!token || collected.pending.some((p) => p.token === token)) continue;
+
         collected.pending.push({
           tool: call.toolName,
           summary: String(output.summary ?? ''),
           reason: String(output.reason ?? ''),
-          token: String(output.confirmationToken ?? ''),
+          token,
         });
       }
     },

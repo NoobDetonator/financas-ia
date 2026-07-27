@@ -526,16 +526,19 @@ export async function loadAll(): Promise<LoadReport> {
 export async function refreshAfterWrite(): Promise<void> {
   const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
 
-  const [page, balances, overview, invoices, budgets, worth, projection, monthlyFlow] = await Promise.all([
-    api.transactions({ limit: 300, sort: 'date_desc' }),
-    api.balances(),
-    api.monthOverview(),
-    api.invoices(),
-    api.budgets(),
-    api.netWorth(),
-    api.projection(60),
-    api.monthlyFlow(monthsAgo(5), CURRENT_MONTH),
-  ]);
+  const [page, balances, overview, invoices, budgets, worth, projection, monthlyFlow, categories, accounts] =
+    await Promise.all([
+      api.transactions({ limit: 300, sort: 'date_desc' }),
+      api.balances(),
+      api.monthOverview(),
+      api.invoices(),
+      api.budgets(),
+      api.netWorth(),
+      api.projection(60),
+      api.monthlyFlow(monthsAgo(5), CURRENT_MONTH),
+      api.categories(),
+      api.accounts(),
+    ]);
 
   TRANSACTIONS = page.items.map((tx) => adaptTransaction(tx, planTotals, new Map()));
   BALANCES = balances;
@@ -545,6 +548,18 @@ export async function refreshAfterWrite(): Promise<void> {
   NET_WORTH = worth;
   PROJECTION = adaptProjection(projection);
   MONTHLY_FLOW = monthlyFlow.filter((row) => row.incomeCents !== 0 || row.expenseCents !== 0);
+  CATEGORIES = categories;
+  ACCOUNTS = accounts.map(adaptAccount);
+  CREDIT_CARDS = accounts
+    .filter((a): a is ApiAccount & { card: NonNullable<ApiAccount['card']> } => a.card !== null)
+    .map((a) => ({
+      accountId: a.card.accountId,
+      limitCents: a.card.limitCents,
+      closingDay: a.card.closingDay,
+      dueDay: a.card.dueDay,
+      paymentAccountId: a.card.paymentAccountId ?? '',
+      isVirtual: a.card.isVirtual ?? false,
+    }));
 }
 
 /** Substitui as tags de uma transação no store, após edição. */

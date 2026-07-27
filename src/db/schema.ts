@@ -43,6 +43,16 @@ export const ACCOUNT_KINDS = [
   'credit_card', // cartão de crédito (saldo = dívida atual)
 ] as const;
 
+/** Bandeira estética do cartão (só diferenciação visual — sem dados reais do plástico). */
+export const CARD_NETWORKS = [
+  'visa',
+  'mastercard',
+  'elo',
+  'amex',
+  'hipercard',
+  'other',
+] as const;
+
 export const TRANSACTION_TYPES = ['expense', 'income', 'transfer'] as const;
 
 /**
@@ -105,6 +115,14 @@ export const accounts = sqliteTable(
     notes: text(),
     /** Apelidos usados pela IA para reconhecer a conta ("nubank", "conta do bradesco"). */
     aliases: text({ mode: 'json' }).$type<string[]>(),
+    /** Conta corrente/poupança/carteira com cartão de débito vinculado. */
+    hasDebitCard: integer('has_debit_card', { mode: 'boolean' }).notNull().default(false),
+    /** Débito virtual (sem plástico). Só faz sentido com hasDebitCard. */
+    debitIsVirtual: integer('debit_is_virtual', { mode: 'boolean' }).notNull().default(false),
+    /** Bandeira estética do débito (visa, mastercard…). */
+    debitCardNetwork: text('debit_card_network', { enum: CARD_NETWORKS }),
+    /** Nome impresso no plástico — só visual, não precisa ser real. */
+    debitCardHolder: text('debit_card_holder'),
     isArchived: integer({ mode: 'boolean' }).notNull().default(false),
     sortOrder: integer().notNull().default(0),
     createdAt: createdAt(),
@@ -125,6 +143,12 @@ export const creditCards = sqliteTable('credit_cards', {
   dueDay: integer().notNull(),
   /** Conta usada por padrão para pagar a fatura. */
   paymentAccountId: text().references(() => accounts.id, { onDelete: 'set null' }),
+  /** Cartão virtual (sem plástico físico). */
+  isVirtual: integer('is_virtual', { mode: 'boolean' }).notNull().default(false),
+  /** Bandeira estética (visa, mastercard…). */
+  network: text({ enum: CARD_NETWORKS }).notNull().default('other'),
+  /** Nome impresso no plástico — só visual. */
+  holderLabel: text('holder_label'),
   notes: text(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
@@ -884,6 +908,7 @@ export type Report = typeof reports.$inferSelect;
 export type Settings = typeof settings.$inferSelect;
 
 export type AccountKind = (typeof ACCOUNT_KINDS)[number];
+export type CardNetwork = (typeof CARD_NETWORKS)[number];
 export type TransactionType = (typeof TRANSACTION_TYPES)[number];
 export type TransactionStatus = (typeof TRANSACTION_STATUS)[number];
 export type CategoryKind = (typeof CATEGORY_KINDS)[number];

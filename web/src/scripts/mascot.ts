@@ -18,6 +18,10 @@ export class PC98MascotRenderer {
   }
 
   public startAnimation() {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.drawMascot();
+      return;
+    }
     const render = () => {
       this.tick++;
       this.drawMascot();
@@ -134,6 +138,10 @@ export class PC98UserMascotRenderer {
   }
 
   public startAnimation() {
+    if (typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      this.drawAvatar();
+      return;
+    }
     const render = () => {
       this.tick++;
       this.drawAvatar();

@@ -188,6 +188,7 @@ export const auth = {
 // ── Tipos do domínio (espelham os DTOs do backend) ──────────────────────────
 
 export type AccountKind = 'checking' | 'savings' | 'cash' | 'wallet' | 'investment' | 'credit_card';
+export type CardNetwork = 'visa' | 'mastercard' | 'elo' | 'amex' | 'hipercard' | 'other';
 export type TransactionType = 'expense' | 'income' | 'transfer';
 export type TransactionStatus = 'scheduled' | 'pending' | 'cleared' | 'reconciled';
 export type CategoryKind = 'expense' | 'income';
@@ -206,6 +207,9 @@ export interface CreditCard {
   closingDay: number;
   dueDay: number;
   paymentAccountId: string | null;
+  isVirtual: boolean;
+  network: CardNetwork;
+  holderLabel: string | null;
   notes: string | null;
 }
 
@@ -221,6 +225,10 @@ export interface Account {
   icon: string | null;
   notes: string | null;
   aliases: string[] | null;
+  hasDebitCard: boolean;
+  debitIsVirtual: boolean;
+  debitCardNetwork: CardNetwork | null;
+  debitCardHolder: string | null;
   isArchived: boolean;
   sortOrder: number;
   createdAt: string;
@@ -690,6 +698,7 @@ export interface AiChatResult {
     token: string;
   }>;
   changeSetIds: string[];
+  executedTools: string[];
   usage: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -742,11 +751,24 @@ export const api = {
       { query: { months } },
     ),
   createAccount: (body: unknown) => request<WriteResult<Account>>('/accounts', { method: 'POST', body }),
+  updateAccount: (id: string, body: unknown) =>
+    request<WriteResult<Account>>(`/accounts/${id}`, { method: 'PATCH', body }),
   archiveAccount: (id: string) => request<WriteResult<Account>>(`/accounts/${id}/archive`, { method: 'POST', body: {} }),
+  unarchiveAccount: (id: string) =>
+    request<WriteResult<Account>>(`/accounts/${id}/unarchive`, { method: 'POST', body: {} }),
+  deleteAccount: (id: string) =>
+    request<WriteResult<{ deleted: string }>>(`/accounts/${id}`, { method: 'DELETE' }),
 
   // Categorias, favorecidos, tags
   categories: (kind?: CategoryKind) => request<Category[]>('/categories', { query: { kind } }),
   categoryTree: (kind?: CategoryKind) => request<CategoryNode[]>('/categories/tree', { query: { kind } }),
+  createCategory: (body: {
+    name: string;
+    kind: CategoryKind;
+    parentId?: string;
+    color?: string;
+    icon?: string;
+  }) => request<WriteResult<Category>>('/categories', { method: 'POST', body }),
   payees: () => request<Payee[]>('/payees'),
   tags: () => request<Tag[]>('/tags'),
 
@@ -851,6 +873,7 @@ export const api = {
 
   // Regras
   rules: () => request<Rule[]>('/rules'),
+  createRule: (body: unknown) => request<WriteResult<Rule>>('/rules', { method: 'POST', body }),
   ruleSuggestions: () =>
     request<
       Array<{
@@ -925,6 +948,7 @@ export async function aiChatStream(
       conversationId: string;
       pendingConfirmations: AiChatResult['pendingConfirmations'];
       changeSetIds: string[];
+      executedTools?: string[];
     }) => void;
     onError?: (message: string) => void;
   },

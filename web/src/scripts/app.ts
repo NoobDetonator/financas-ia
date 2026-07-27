@@ -4,12 +4,14 @@ import { PC98ChartSuite } from './charts';
 import {
   ACCOUNTS, TRANSACTIONS, BUDGETS, DEBTS, HOLDINGS, RECURRENCES,
   GOALS, RULES, INSIGHTS, CARD_INVOICES, DEBT_PAYMENTS, MONTHLY_FLOW,
-  PROJECTION, CATEGORIES,
-  formatMoney, formatDate, getAccountName, getCategoryPath,
+  PROJECTION, CATEGORIES, IMPORT_BATCHES, PORTFOLIO,
+  formatMoney, formatDate, toIsoDate, getAccountName, getCategoryPath,
   getCategoryName, getPayeeName, getTagNames, computeBalance,
   totalAvailableBalance, currentMonthIncome, currentMonthExpense, netWorth,
   statusLabel, statusColorClass, CREDIT_CARDS,
-  openingAiMessage, refreshAfterWrite, savingsRate, cardUsage, TODAY,
+  openingAiMessage, refreshAfterWrite, cardUsage, TODAY,
+  primaryGoalProgressPercent, primaryGoalName, radarHealthMetrics,
+  categoryDonutSlices, monthWaterfallSteps,
   type Transaction, type Budget, type Account, type Debt, type Holding
 } from './data';
 import { BITMAP_ICONS } from './icons';
@@ -23,6 +25,110 @@ function escapeHtml(value: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&#39;');
+}
+
+const AI_CONFIRM_RE = /^(sim|ok|confirmo|confirma|confirmado|pode( executar)?|aprova(r)?|aprovado)\b/i;
+
+const CASHLIKE_KINDS = new Set(['checking', 'savings', 'cash', 'wallet', 'investment']);
+
+const ACCOUNT_KIND_LABELS: Record<string, string> = {
+  checking: 'CORRENTE',
+  savings: 'POUPANÇA',
+  cash: 'DINHEIRO',
+  wallet: 'CARTEIRA',
+  investment: 'INVESTIMENTO',
+  credit_card: 'CRÉDITO',
+};
+
+function accountKindLabel(kind: string): string {
+  return ACCOUNT_KIND_LABELS[kind] ?? kind.toUpperCase();
+}
+
+const CARD_NETWORK_LABELS: Record<string, string> = {
+  visa: 'VISA',
+  mastercard: 'Mastercard',
+  elo: 'Elo',
+  amex: 'Amex',
+  hipercard: 'Hipercard',
+  other: 'Cartão',
+};
+
+function cardNetworkLabel(network: string | null | undefined): string {
+  return CARD_NETWORK_LABELS[network ?? 'other'] ?? 'Cartão';
+}
+
+/** Mensagem curta do que a IA gravou, para o toast. */
+function summarizeAiWrites(tools: string[], changeSetCount: number): string {
+  const unique = [...new Set(tools)];
+  if (unique.includes('create_goal')) return 'Meta criada pela IA.';
+  if (unique.includes('create_transaction')) return 'Lançamento criado pela IA.';
+  if (unique.includes('create_transfer')) return 'Transferência criada pela IA.';
+  if (unique.includes('create_installment_plan')) return 'Parcelamento criado pela IA.';
+  if (unique.includes('create_recurrence')) return 'Recorrência criada pela IA.';
+  if (unique.includes('set_budget')) return 'Orçamento atualizado pela IA.';
+  if (unique.includes('contribute_to_goal')) return 'Aporte na meta registrado pela IA.';
+  if (unique.includes('pay_card_invoice')) return 'Fatura paga pela IA.';
+  if (unique.includes('delete_transaction')) return 'Lançamento excluído pela IA.';
+  if (unique.includes('categorize_transaction') || unique.includes('bulk_categorize')) {
+    return 'Categorização aplicada pela IA.';
+  }
+  if (unique.includes('apply_rules')) return 'Regras aplicadas pela IA.';
+  if (changeSetCount === 1) return 'Alteração da IA aplicada.';
+  return `${changeSetCount} alterações da IA aplicadas.`;
+}
+
+function parseReaisToCents(raw: string): number {
+  const n = parseFloat(raw.replace(',', '.').trim());
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
+/** Cartão plástico 3D estético — sem dados reais; só nome/bandeira/virtual. */
+function buildPlasticCardHtml(options: {
+  name: string;
+  holder?: string | null;
+  network?: string | null;
+  isVirtual?: boolean;
+  kindLabel: string;
+  idSuffix?: string;
+}): string {
+  const network = options.network || 'other';
+  const holder = (options.holder || options.name).trim() || options.name;
+  const suffix = options.idSuffix ? `-${escapeHtml(options.idSuffix)}` : '';
+  const virtualClass = options.isVirtual ? ' is-virtual' : '';
+  return `
+    <div class="plastic-card-stage">
+      <div class="plastic-card-scene">
+        <button type="button" class="plastic-card${virtualClass}" data-network="${escapeHtml(network)}" id="plastic-card${suffix}" aria-label="Virar cartão ${escapeHtml(options.name)}">
+          <div class="plastic-card-face front">
+            <div class="plastic-card-top">
+              <div class="plastic-card-chip" aria-hidden="true"></div>
+              <div class="plastic-card-network">${escapeHtml(cardNetworkLabel(network))}</div>
+            </div>
+            <div class="plastic-card-pan" aria-hidden="true">•••• •••• •••• ••••</div>
+            <div class="plastic-card-bottom">
+              <div class="plastic-card-label">${escapeHtml(holder)}</div>
+              <div class="plastic-card-meta">
+                ${escapeHtml(options.kindLabel)}
+                ${options.isVirtual ? '<br/>VIRTUAL' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="plastic-card-face back">
+            <div class="plastic-card-stripe" aria-hidden="true"></div>
+            <div class="plastic-card-cvv-row">
+              <span>ASSINATURA</span>
+              <span aria-hidden="true">CVV •••</span>
+            </div>
+            <div class="plastic-card-back-note">
+              Modelo estético KAKEIBO — sem número real. Clique para virar.
+            </div>
+          </div>
+        </button>
+      </div>
+      <div class="micro-label plastic-card-hint">[CLIQUE PARA VIRAR] frente / verso</div>
+    </div>
+  `;
 }
 
 
@@ -64,9 +170,25 @@ export class KakeiboApp {
   private mascotRenderer: PC98MascotRenderer | null = null;
   private isTyping: boolean = false;
   private activeTab: string = 'dashboard';
-  private selectedCategoryDetail: string = 'cat-alimentacao';
+  private selectedCategoryDetail: string = '';
+  private selectedAddCategoryId: string | null = null;
   private journalSearchQuery: string = '';
   private currentFilterKey: string = 'all';
+  private resizeTimer: number | null = null;
+  private aiRiskReject: (() => void) | null = null;
+  private aiRiskDismiss: (() => void) | null = null;
+  private accountsFilter: 'all' | 'cashlike' | 'credit' | 'debit' = 'all';
+  private selectedAccountId: string | null = null;
+  private accountFormMode: 'create' | 'edit' = 'create';
+  private editingAccountId: string | null = null;
+  private pendingAiConfirm: {
+    items: Array<{ token: string; summary: string; reason: string }>;
+    originalMessage: string;
+    meta: HTMLElement;
+  } | null = null;
+  private aiDockCollapsed = false;
+  private aiDockWidth = 320;
+  private aiResizeActive = false;
 
   // USER PROFILE STATE & AVATAR RENDERERS
   private userName: string = 'Allan';
@@ -78,12 +200,144 @@ export class KakeiboApp {
 
   constructor() {
     this.initTheme();
+    this.initAiDockPrefs();
     this.initDOM();
     this.applyTheme(false); // refresh status-bar label after DOM exists
     this.initClock();
     this.renderAll();
     this.initEvents();
-    window.addEventListener('resize', () => this.rerenderActiveCharts());
+    this.initAiDockInteractions();
+    window.addEventListener('resize', () => {
+      if (this.resizeTimer) window.clearTimeout(this.resizeTimer);
+      this.resizeTimer = window.setTimeout(() => this.rerenderActiveCharts(), 150);
+    });
+  }
+
+  private clampAiWidth(px: number): number {
+    return Math.min(560, Math.max(260, Math.round(px)));
+  }
+
+  private initAiDockPrefs() {
+    try {
+      const storedWidth = Number(localStorage.getItem('kakeibo.aiWidth'));
+      if (Number.isFinite(storedWidth) && storedWidth > 0) {
+        this.aiDockWidth = this.clampAiWidth(storedWidth);
+      }
+      this.aiDockCollapsed = localStorage.getItem('kakeibo.aiCollapsed') === '1';
+    } catch {
+      /* ignore */
+    }
+    this.applyAiDockWidth(this.aiDockWidth, false);
+    this.applyAiDockCollapsed(this.aiDockCollapsed, false);
+  }
+
+  private applyAiDockWidth(px: number, persist = true) {
+    this.aiDockWidth = this.clampAiWidth(px);
+    document.documentElement.style.setProperty('--ai-width', `${this.aiDockWidth}px`);
+    if (persist) {
+      try {
+        localStorage.setItem('kakeibo.aiWidth', String(this.aiDockWidth));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private applyAiDockCollapsed(collapsed: boolean, persist = true) {
+    this.aiDockCollapsed = collapsed;
+    document.body.classList.toggle('ai-dock-collapsed', collapsed);
+    if (persist) {
+      try {
+        localStorage.setItem('kakeibo.aiCollapsed', collapsed ? '1' : '0');
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  private setAiDockCollapsed(collapsed: boolean) {
+    // On overlay layouts, minimize closes the dock instead of a desktop rail.
+    if (collapsed && window.matchMedia('(max-width: 1100px)').matches) {
+      this.applyAiDockCollapsed(false, true);
+      this.setAiDockOpen(false);
+      return;
+    }
+    this.applyAiDockCollapsed(collapsed, true);
+    // Desktop collapse must not use the mobile overlay class.
+    if (collapsed) {
+      this.setAiDockOpen(false);
+    }
+  }
+
+  private expandAiDock() {
+    this.setAiDockCollapsed(false);
+    if (window.matchMedia('(max-width: 1100px)').matches) {
+      this.setAiDockOpen(true);
+    }
+    setTimeout(() => document.getElementById('chat-input-text')?.focus(), 40);
+  }
+
+  private initAiDockInteractions() {
+    const handle = document.getElementById('ai-resize-handle');
+    const minimizeBtn = document.getElementById('btn-minimize-ai-dock');
+    const expandBtn = document.getElementById('btn-expand-ai-dock');
+
+    minimizeBtn?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.setAiDockCollapsed(true);
+    });
+
+    expandBtn?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.expandAiDock();
+    });
+
+    const onPointerMove = (ev: PointerEvent) => {
+      if (!this.aiResizeActive) return;
+      // Sidebar is right-aligned; width = distance from pointer to right edge (minus padding).
+      const next = window.innerWidth - ev.clientX - 8;
+      this.applyAiDockWidth(next, false);
+    };
+    const onPointerUp = () => {
+      if (!this.aiResizeActive) return;
+      this.aiResizeActive = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+      window.removeEventListener('pointermove', onPointerMove);
+      window.removeEventListener('pointerup', onPointerUp);
+      this.applyAiDockWidth(this.aiDockWidth, true);
+    };
+
+    handle?.addEventListener('pointerdown', (ev) => {
+      if (window.matchMedia('(max-width: 1100px)').matches) return;
+      ev.preventDefault();
+      this.aiResizeActive = true;
+      document.body.style.cursor = 'col-resize';
+      document.body.style.userSelect = 'none';
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerup', onPointerUp);
+    });
+
+    handle?.addEventListener('keydown', (ev) => {
+      if (window.matchMedia('(max-width: 1100px)').matches) return;
+      if (ev.key === 'ArrowLeft') {
+        ev.preventDefault();
+        this.applyAiDockWidth(this.aiDockWidth + 16, true);
+      } else if (ev.key === 'ArrowRight') {
+        ev.preventDefault();
+        this.applyAiDockWidth(this.aiDockWidth - 16, true);
+      }
+    });
+
+    // Scrim click (body::before) closes overlay dock on narrow layouts.
+    document.addEventListener('pointerdown', (ev) => {
+      if (!document.body.classList.contains('ai-dock-open')) return;
+      if (!window.matchMedia('(max-width: 1100px)').matches) return;
+      const target = ev.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('#ai-dock') || target.closest('#btn-mobile-ai') || target.closest('.status-bar')) return;
+      this.setAiDockOpen(false);
+    });
   }
 
   private initTheme() {
@@ -182,6 +436,7 @@ export class KakeiboApp {
     this.renderRecurrences();
     this.renderGoals();
     this.renderRules();
+    this.renderImportHistory();
     this.renderUpcomingBills();
     this.renderChatGreeting();
     this.triggerAiInsight(this.currentAiIndex);
@@ -220,16 +475,18 @@ export class KakeiboApp {
   private renderDashboardCharts() {
     setTimeout(() => {
       const radarCanvas = document.getElementById('radar-chart-canvas') as HTMLCanvasElement;
-      if (radarCanvas) PC98ChartSuite.renderRadarChart(radarCanvas);
+      if (radarCanvas) PC98ChartSuite.renderRadarChart(radarCanvas, radarHealthMetrics());
 
       const gaugeCanvas = document.getElementById('gauge-chart-canvas') as HTMLCanvasElement;
-      if (gaugeCanvas) PC98ChartSuite.renderGaugeChart(gaugeCanvas, 74);
+      if (gaugeCanvas) {
+        const pct = primaryGoalProgressPercent();
+        const title = primaryGoalName() ?? 'META ECONOMIA';
+        PC98ChartSuite.renderGaugeChart(gaugeCanvas, pct, title);
+      }
 
-      // Render flow line chart with real data
       const flowCanvas = document.getElementById('flow-chart-canvas') as HTMLCanvasElement;
       if (flowCanvas) PC98ChartSuite.renderFlowLineChart(flowCanvas, MONTHLY_FLOW);
 
-      // Projection chart
       const projCanvas = document.getElementById('projection-chart-canvas') as HTMLCanvasElement;
       if (projCanvas) PC98ChartSuite.renderProjectionChart(projCanvas, PROJECTION);
     }, 50);
@@ -394,68 +651,505 @@ export class KakeiboApp {
     if (!grid) return;
     grid.innerHTML = '';
 
-    ACCOUNTS.forEach(acc => {
+    const filtered = ACCOUNTS.filter((acc) => {
+      if (this.accountsFilter === 'all') return true;
+      if (this.accountsFilter === 'cashlike') return CASHLIKE_KINDS.has(acc.kind);
+      if (this.accountsFilter === 'credit') return acc.kind === 'credit_card';
+      if (this.accountsFilter === 'debit') return acc.hasDebitCard && acc.kind !== 'credit_card';
+      return true;
+    });
+
+    if (ACCOUNTS.length === 0) {
+      grid.innerHTML = `
+        <div class="pc98-well" style="padding: 16px; grid-column: 1 / -1; display: flex; flex-direction: column; gap: 10px; align-items: flex-start;">
+          <div style="font-weight: bold; color: var(--c-bone-white);">Nenhuma conta ainda.</div>
+          <div class="micro-label" style="color: var(--c-pale-cyan); line-height: 1.5;">Aha: crie sua conta corrente e, se quiser, um cartão.</div>
+          <button type="button" id="btn-create-first-account" class="pc98-btn btn-primary" style="padding: 8px 12px;">[+ CRIAR PRIMEIRA CONTA]</button>
+        </div>
+      `;
+      document.getElementById('btn-create-first-account')?.addEventListener('click', () => {
+        this.openAccountForm('create');
+      });
+      this.renderAccountDetail();
+      const invoicesEmpty = document.getElementById('invoices-container');
+      if (invoicesEmpty) invoicesEmpty.innerHTML = '';
+      return;
+    }
+
+    if (filtered.length === 0) {
+      grid.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA CONTA — USE [+ NOVA CONTA]</div>`;
+    }
+
+    if (this.selectedAccountId && !ACCOUNTS.some((a) => a.id === this.selectedAccountId)) {
+      this.selectedAccountId = null;
+    }
+
+    filtered.forEach((acc) => {
       const isCredit = acc.kind === 'credit_card';
       const balance = computeBalance(acc.id);
-      const card = document.createElement('div');
-      card.className = 'pc98-well';
-      card.style.display = 'flex';
-      card.style.flexDirection = 'column';
-      card.style.gap = '6px';
+      const creditCard = isCredit ? CREDIT_CARDS.find((c) => c.accountId === acc.id) : null;
+      const usage = isCredit ? cardUsage(acc.id) : undefined;
 
-      const creditCard = isCredit ? CREDIT_CARDS.find(c => c.accountId === acc.id) : null;
+      const badges: string[] = [
+        `<span class="micro-label" style="color: var(--c-grey-blue);">[${escapeHtml(accountKindLabel(acc.kind))}]</span>`,
+      ];
+      if (isCredit && creditCard?.isVirtual) {
+        badges.push(`<span class="micro-label txt-cyan">[VIRTUAL]</span>`);
+      }
+      if (!isCredit && acc.debitIsVirtual) {
+        badges.push(`<span class="micro-label txt-cyan">[VIRTUAL]</span>`);
+      }
+      if (acc.hasDebitCard && !isCredit) {
+        badges.push(`<span class="micro-label txt-amber">[DÉBITO]</span>`);
+      }
 
-      card.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-weight: bold; color: var(--c-bone-white);">${acc.name}</span>
-          <span class="micro-label" style="color: ${acc.color};">${acc.institution || acc.kind.toUpperCase()}</span>
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `account-card-btn pc98-well${this.selectedAccountId === acc.id ? ' selected' : ''}`;
+      btn.dataset.accountId = acc.id;
+      btn.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span style="font-weight: bold; color: var(--c-bone-white);">${escapeHtml(acc.name)}</span>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">${badges.join('')}</div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
           <div>
             <div class="micro-label" style="color: var(--c-grey-blue);">DISPONÍVEL</div>
-            <div class="num-currency ${balance.availableCents < 0 ? 'txt-pink' : 'txt-green'}" style="font-size: 22px;">
+            <div class="num-currency ${balance.availableCents < 0 ? 'txt-pink' : 'txt-green'}" style="font-size: 20px;">
               ${formatMoney(balance.availableCents)}
             </div>
           </div>
           <div style="text-align: right;">
             <div class="micro-label" style="color: var(--c-grey-blue);">PROJETADO</div>
-            <div class="num-currency" style="font-size: 14px; color: var(--c-pale-cyan);">
+            <div class="num-currency" style="font-size: 13px; color: var(--c-pale-cyan);">
               ${formatMoney(balance.projectedCents)}
             </div>
           </div>
         </div>
-        ${isCredit && creditCard ? `
-          <div class="micro-label" style="color: var(--c-grey-blue);">
-            LIMITE: ${formatMoney(creditCard.limitCents)} | FECHA: DIA ${creditCard.closingDay} | VENCE: DIA ${creditCard.dueDay}
-          </div>
-        ` : `
-          <div class="micro-label" style="color: var(--c-grey-blue);">${acc.kind.toUpperCase()} • ${acc.currency}</div>
-        `}
+        ${
+          isCredit && creditCard
+            ? `<div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">
+                ${
+                  usage
+                    ? `USO: ${usage.usedPercent}% DE ${formatMoney(usage.limitCents)}`
+                    : `LIMITE: ${formatMoney(creditCard.limitCents)}`
+                }
+               </div>`
+            : `<div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">${escapeHtml(acc.institution || acc.currency)}</div>`
+        }
       `;
-
-      grid.appendChild(card);
+      btn.addEventListener('click', () => {
+        pc98Audio.playSelect();
+        this.selectedAccountId = acc.id;
+        this.renderAccounts();
+      });
+      grid.appendChild(btn);
     });
 
-    // Render invoices section
+    this.renderAccountDetail();
+
     const invoicesContainer = document.getElementById('invoices-container');
     if (invoicesContainer) {
       invoicesContainer.innerHTML = '';
-      CARD_INVOICES.forEach(inv => {
+      const selected = this.selectedAccountId
+        ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+        : null;
+      const invoices =
+        selected?.kind === 'credit_card'
+          ? CARD_INVOICES.filter((inv) => inv.cardAccountId === selected.id)
+          : CARD_INVOICES.filter((inv) => inv.status === 'open' || inv.status === 'overdue');
+
+      if (invoices.length === 0) {
+        invoicesContainer.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 8px;">SEM FATURAS ABERTAS</div>`;
+      }
+
+      invoices.forEach((inv) => {
         const statusClass = inv.status === 'overdue' ? 'txt-pink' : inv.status === 'open' ? 'txt-amber' : 'txt-green';
         const statusText = inv.status === 'overdue' ? 'VENCIDA' : inv.status === 'open' ? 'ABERTA' : 'PAGA';
+        const canPay = inv.status === 'open' || inv.status === 'overdue';
+        const cardAcc = ACCOUNTS.find((a) => a.id === inv.cardAccountId);
+        const showName = selected?.kind !== 'credit_card';
         const el = document.createElement('div');
         el.className = 'pc98-well';
         el.style.padding = '8px';
         el.innerHTML = `
           <div style="display: flex; justify-content: space-between;">
-            <span class="micro-label">FATURA ${inv.referenceMonth}</span>
+            <span class="micro-label">FATURA ${escapeHtml(inv.referenceMonth)}${showName && cardAcc ? ` · ${escapeHtml(cardAcc.name)}` : ''}</span>
             <span class="micro-label ${statusClass}">[${statusText}]</span>
           </div>
           <div class="num-currency ${statusClass}" style="font-size: var(--fs-md);">${formatMoney(inv.totalCents)}</div>
           <div class="micro-label" style="color: var(--c-grey-blue);">Vencimento: ${formatDate(inv.dueDate)}</div>
+          ${canPay ? `<button type="button" class="pc98-btn btn-primary btn-pay-invoice-row" data-invoice-id="${escapeHtml(inv.id)}" style="margin-top: 6px; padding: 4px 10px; font-size: 11px;">[PAGAR]</button>` : ''}
         `;
+        const payBtn = el.querySelector('.btn-pay-invoice-row') as HTMLButtonElement | null;
+        payBtn?.addEventListener('click', () => {
+          void this.payInvoiceById(inv.id);
+        });
         invoicesContainer.appendChild(el);
       });
+    }
+  }
+
+  private renderAccountDetail() {
+    const panel = document.getElementById('account-detail-panel');
+    if (!panel) return;
+
+    const acc = this.selectedAccountId
+      ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+      : null;
+
+    if (!acc) {
+      if (ACCOUNTS.length === 0) {
+        panel.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 10px;">
+            <div style="font-weight: bold; color: var(--c-bone-white);">Nenhuma conta ainda.</div>
+            <div class="micro-label" style="color: var(--c-pale-cyan); line-height: 1.5;">Aha: crie sua conta corrente e, se quiser, um cartão.</div>
+            <button type="button" id="btn-create-first-account-detail" class="pc98-btn btn-primary" style="padding: 8px 12px;">[+ CRIAR PRIMEIRA CONTA]</button>
+          </div>
+        `;
+        document.getElementById('btn-create-first-account-detail')?.addEventListener('click', () => {
+          this.openAccountForm('create');
+        });
+        return;
+      }
+      panel.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue);">Selecione uma conta para ver detalhes, editar ou arquivar.</div>`;
+      return;
+    }
+
+    const isCredit = acc.kind === 'credit_card';
+    const balance = computeBalance(acc.id);
+    const creditCard = isCredit ? CREDIT_CARDS.find((c) => c.accountId === acc.id) : null;
+    const usage = isCredit ? cardUsage(acc.id) : undefined;
+    const paymentName =
+      creditCard?.paymentAccountId
+        ? ACCOUNTS.find((a) => a.id === creditCard.paymentAccountId)?.name
+        : null;
+
+    let specifics = '';
+    let plastic = '';
+    if (isCredit && creditCard) {
+      specifics = `
+        <div class="micro-label" style="color: var(--c-grey-blue);">LIMITE: ${formatMoney(creditCard.limitCents)}</div>
+        <div class="micro-label" style="color: var(--c-grey-blue);">FECHA DIA ${creditCard.closingDay} · VENCE DIA ${creditCard.dueDay}</div>
+        ${usage ? `<div class="micro-label" style="color: var(--c-amber);">USO: ${usage.usedPercent}% (${formatMoney(usage.usedCents)})</div>` : ''}
+        <div class="micro-label" style="color: var(--c-pale-cyan);">BANDEIRA: ${escapeHtml(cardNetworkLabel(creditCard.network))}</div>
+        ${creditCard.isVirtual ? `<div class="micro-label txt-cyan">[VIRTUAL]</div>` : ''}
+        ${paymentName ? `<div class="micro-label" style="color: var(--c-grey-blue);">PAGA COM: ${escapeHtml(paymentName)}</div>` : ''}
+      `;
+      plastic = buildPlasticCardHtml({
+        name: acc.name,
+        holder: creditCard.holderLabel,
+        network: creditCard.network,
+        isVirtual: creditCard.isVirtual,
+        kindLabel: 'CRÉDITO',
+        idSuffix: acc.id,
+      });
+    } else {
+      const debitBits: string[] = [];
+      if (acc.hasDebitCard) debitBits.push('[DÉBITO]');
+      if (acc.debitIsVirtual) debitBits.push('[VIRTUAL]');
+      specifics = `
+        <div class="micro-label" style="color: var(--c-grey-blue);">SALDO ABERTURA: ${formatMoney(acc.openingBalanceCents)}</div>
+        ${debitBits.length ? `<div class="micro-label txt-amber">${debitBits.join(' ')}</div>` : ''}
+        ${
+          acc.hasDebitCard
+            ? `<div class="micro-label" style="color: var(--c-pale-cyan);">BANDEIRA: ${escapeHtml(cardNetworkLabel(acc.debitCardNetwork))}</div>`
+            : ''
+        }
+      `;
+      if (acc.hasDebitCard) {
+        plastic = buildPlasticCardHtml({
+          name: acc.name,
+          holder: acc.debitCardHolder,
+          network: acc.debitCardNetwork,
+          isVirtual: acc.debitIsVirtual,
+          kindLabel: 'DÉBITO',
+          idSuffix: acc.id,
+        });
+      }
+    }
+
+    panel.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        ${plastic}
+        <div style="font-weight: bold; color: var(--c-bone-white); font-size: 15px;">${escapeHtml(acc.name)}</div>
+        <div class="micro-label" style="color: var(--c-pale-cyan);">[${escapeHtml(accountKindLabel(acc.kind))}]</div>
+        ${acc.institution ? `<div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(acc.institution)}</div>` : ''}
+        <div>
+          <div class="micro-label" style="color: var(--c-grey-blue);">DISPONÍVEL</div>
+          <div class="num-currency ${balance.availableCents < 0 ? 'txt-pink' : 'txt-green'}" style="font-size: 18px;">${formatMoney(balance.availableCents)}</div>
+        </div>
+        <div>
+          <div class="micro-label" style="color: var(--c-grey-blue);">PROJETADO</div>
+          <div class="num-currency" style="font-size: 14px; color: var(--c-pale-cyan);">${formatMoney(balance.projectedCents)}</div>
+        </div>
+        ${specifics}
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
+          <button type="button" id="btn-edit-account" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[EDITAR]</button>
+          <button type="button" id="btn-archive-account" class="pc98-btn btn-alert" style="padding: 4px 10px; font-size: 11px;">[ARQUIVAR]</button>
+          <button type="button" id="btn-account-to-journal" class="pc98-btn" style="padding: 4px 10px; font-size: 11px;">[VER NO JOURNAL]</button>
+          ${isCredit ? `<button type="button" id="btn-scroll-invoices" class="pc98-btn" style="padding: 4px 10px; font-size: 11px;">[VER FATURAS]</button>` : ''}
+        </div>
+      </div>
+    `;
+
+    panel.querySelector('.plastic-card')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      (e.currentTarget as HTMLElement).classList.toggle('is-flipped');
+    });
+
+    document.getElementById('btn-edit-account')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.openAccountForm('edit', acc);
+    });
+    document.getElementById('btn-archive-account')?.addEventListener('click', () => {
+      void this.archiveSelectedAccount();
+    });
+    document.getElementById('btn-account-to-journal')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.switchTab('transactions');
+      this.renderJournalTransactions(this.currentFilterKey);
+    });
+    document.getElementById('btn-scroll-invoices')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      document.getElementById('invoices-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  private syncAccountFormSections() {
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    const debitSection = document.getElementById('account-debit-section');
+    const creditSection = document.getElementById('account-credit-section');
+    const openingGroup = document.getElementById('account-opening-balance-group');
+    const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
+    const debitVisual = document.getElementById('account-debit-visual');
+    if (!kindSelect) return;
+    const isCredit = kindSelect.value === 'credit_card';
+    if (debitSection) debitSection.style.display = isCredit ? 'none' : 'flex';
+    if (creditSection) {
+      creditSection.style.display = isCredit ? 'flex' : 'none';
+      creditSection.classList.toggle('hidden', !isCredit);
+    }
+    if (openingGroup) openingGroup.style.display = isCredit ? 'none' : 'flex';
+    debitVisual?.classList.toggle('is-open', !isCredit && !!hasDebit?.checked);
+  }
+
+  private populatePaymentAccountSelect(excludeId?: string) {
+    const select = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = '<option value="">— nenhuma —</option>';
+    for (const acc of ACCOUNTS.filter((a) => a.kind !== 'credit_card' && !a.isArchived && a.id !== excludeId)) {
+      const opt = document.createElement('option');
+      opt.value = acc.id;
+      opt.textContent = acc.name;
+      select.appendChild(opt);
+    }
+    if (previous && [...select.options].some((o) => o.value === previous)) {
+      select.value = previous;
+    }
+  }
+
+  private openAccountForm(mode: 'create' | 'edit', account?: Account) {
+    pc98Audio.playSelect();
+    this.accountFormMode = mode;
+    this.editingAccountId = mode === 'edit' && account ? account.id : null;
+
+    const modal = document.getElementById('modal-account-form');
+    const title = document.getElementById('account-form-title');
+    const nameInput = document.getElementById('account-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    const institutionInput = document.getElementById('account-input-institution') as HTMLInputElement | null;
+    const openingInput = document.getElementById('account-input-opening-balance') as HTMLInputElement | null;
+    const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
+    const debitVirtual = document.getElementById('account-input-debit-virtual') as HTMLInputElement | null;
+    const debitNetwork = document.getElementById('account-input-debit-network') as HTMLSelectElement | null;
+    const debitHolder = document.getElementById('account-input-debit-holder') as HTMLInputElement | null;
+    const limitInput = document.getElementById('account-input-limit') as HTMLInputElement | null;
+    const closingInput = document.getElementById('account-input-closing-day') as HTMLInputElement | null;
+    const dueInput = document.getElementById('account-input-due-day') as HTMLInputElement | null;
+    const isVirtual = document.getElementById('account-input-is-virtual') as HTMLInputElement | null;
+    const creditNetwork = document.getElementById('account-input-credit-network') as HTMLSelectElement | null;
+    const creditHolder = document.getElementById('account-input-credit-holder') as HTMLInputElement | null;
+    const paymentSelect = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
+
+    if (title) title.textContent = mode === 'create' ? 'NOVA CONTA' : 'EDITAR CONTA';
+    this.populatePaymentAccountSelect(account?.id);
+
+    if (mode === 'edit' && account) {
+      if (nameInput) nameInput.value = account.name;
+      if (kindSelect) {
+        kindSelect.value = account.kind;
+        kindSelect.disabled = true;
+      }
+      if (institutionInput) institutionInput.value = account.institution;
+      if (openingInput) openingInput.value = (account.openingBalanceCents / 100).toFixed(2);
+      if (hasDebit) hasDebit.checked = account.hasDebitCard;
+      if (debitVirtual) debitVirtual.checked = account.debitIsVirtual;
+      if (debitNetwork) debitNetwork.value = account.debitCardNetwork || 'mastercard';
+      if (debitHolder) debitHolder.value = account.debitCardHolder || '';
+      const card = CREDIT_CARDS.find((c) => c.accountId === account.id);
+      if (card) {
+        if (limitInput) limitInput.value = (card.limitCents / 100).toFixed(2);
+        if (closingInput) closingInput.value = String(card.closingDay);
+        if (dueInput) dueInput.value = String(card.dueDay);
+        if (isVirtual) isVirtual.checked = card.isVirtual;
+        if (paymentSelect) paymentSelect.value = card.paymentAccountId || '';
+        if (creditNetwork) creditNetwork.value = card.network || 'mastercard';
+        if (creditHolder) creditHolder.value = card.holderLabel || '';
+      }
+    } else {
+      if (nameInput) nameInput.value = '';
+      if (kindSelect) {
+        kindSelect.value = 'checking';
+        kindSelect.disabled = false;
+      }
+      if (institutionInput) institutionInput.value = '';
+      if (openingInput) openingInput.value = '0';
+      if (hasDebit) hasDebit.checked = false;
+      if (debitVirtual) debitVirtual.checked = false;
+      if (debitNetwork) debitNetwork.value = 'mastercard';
+      if (debitHolder) debitHolder.value = '';
+      if (limitInput) limitInput.value = '0';
+      if (closingInput) closingInput.value = '1';
+      if (dueInput) dueInput.value = '10';
+      if (isVirtual) isVirtual.checked = false;
+      if (creditNetwork) creditNetwork.value = 'mastercard';
+      if (creditHolder) creditHolder.value = '';
+      if (paymentSelect) paymentSelect.value = '';
+    }
+
+    this.syncAccountFormSections();
+    modal?.classList.remove('hidden');
+    nameInput?.focus();
+  }
+
+  private closeAccountForm() {
+    document.getElementById('modal-account-form')?.classList.add('hidden');
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    if (kindSelect) kindSelect.disabled = false;
+    this.editingAccountId = null;
+  }
+
+  private async submitAccountForm() {
+    const nameInput = document.getElementById('account-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    const institutionInput = document.getElementById('account-input-institution') as HTMLInputElement | null;
+    const openingInput = document.getElementById('account-input-opening-balance') as HTMLInputElement | null;
+    const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
+    const debitVirtual = document.getElementById('account-input-debit-virtual') as HTMLInputElement | null;
+    const debitNetwork = document.getElementById('account-input-debit-network') as HTMLSelectElement | null;
+    const debitHolder = document.getElementById('account-input-debit-holder') as HTMLInputElement | null;
+    const limitInput = document.getElementById('account-input-limit') as HTMLInputElement | null;
+    const closingInput = document.getElementById('account-input-closing-day') as HTMLInputElement | null;
+    const dueInput = document.getElementById('account-input-due-day') as HTMLInputElement | null;
+    const isVirtual = document.getElementById('account-input-is-virtual') as HTMLInputElement | null;
+    const creditNetwork = document.getElementById('account-input-credit-network') as HTMLSelectElement | null;
+    const creditHolder = document.getElementById('account-input-credit-holder') as HTMLInputElement | null;
+    const paymentSelect = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
+
+    const name = nameInput?.value.trim() ?? '';
+    if (!name) {
+      this.notify('Informe o nome da conta.', 'warn');
+      return;
+    }
+
+    const kind = (kindSelect?.value ?? 'checking') as Account['kind'];
+    const institution = institutionInput?.value.trim() || undefined;
+    const isCredit = kind === 'credit_card';
+    const debitHolderValue = debitHolder?.value.trim() || undefined;
+    const creditHolderValue = creditHolder?.value.trim() || undefined;
+
+    try {
+      if (this.accountFormMode === 'create') {
+        const body: Record<string, unknown> = {
+          name,
+          kind,
+          currency: 'BRL',
+          ...(institution ? { institution } : {}),
+        };
+        if (isCredit) {
+          const closingDay = Number(closingInput?.value || 1);
+          const dueDay = Number(dueInput?.value || 10);
+          body.card = {
+            limitCents: parseReaisToCents(limitInput?.value || '0'),
+            closingDay,
+            dueDay,
+            isVirtual: isVirtual?.checked ?? false,
+            network: creditNetwork?.value || 'other',
+            ...(creditHolderValue ? { holderLabel: creditHolderValue } : {}),
+            ...(paymentSelect?.value ? { paymentAccountId: paymentSelect.value } : {}),
+          };
+        } else {
+          body.openingBalanceCents = parseReaisToCents(openingInput?.value || '0');
+          body.hasDebitCard = hasDebit?.checked ?? false;
+          body.debitIsVirtual = (hasDebit?.checked && debitVirtual?.checked) ?? false;
+          if (hasDebit?.checked) {
+            body.debitCardNetwork = debitNetwork?.value || 'other';
+            if (debitHolderValue) body.debitCardHolder = debitHolderValue;
+          }
+        }
+        const result = await api.createAccount(body);
+        this.closeAccountForm();
+        this.selectedAccountId = result.data.id;
+        await this.reloadAfterWrite('Conta criada.', result.changeSetId);
+      } else if (this.editingAccountId) {
+        const body: Record<string, unknown> = {
+          name,
+          ...(institution !== undefined ? { institution: institution || null } : {}),
+        };
+        if (isCredit) {
+          body.card = {
+            limitCents: parseReaisToCents(limitInput?.value || '0'),
+            closingDay: Number(closingInput?.value || 1),
+            dueDay: Number(dueInput?.value || 10),
+            isVirtual: isVirtual?.checked ?? false,
+            network: creditNetwork?.value || 'other',
+            holderLabel: creditHolderValue || null,
+            paymentAccountId: paymentSelect?.value || null,
+          };
+        } else {
+          body.openingBalanceCents = parseReaisToCents(openingInput?.value || '0');
+          body.hasDebitCard = hasDebit?.checked ?? false;
+          body.debitIsVirtual = (hasDebit?.checked && debitVirtual?.checked) ?? false;
+          body.debitCardNetwork = hasDebit?.checked ? (debitNetwork?.value || 'other') : null;
+          body.debitCardHolder = hasDebit?.checked ? (debitHolderValue || null) : null;
+        }
+        const result = await api.updateAccount(this.editingAccountId, body);
+        this.closeAccountForm();
+        await this.reloadAfterWrite('Conta atualizada.', result.changeSetId);
+      }
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao salvar conta: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async archiveSelectedAccount() {
+    if (!this.selectedAccountId) return;
+    const acc = ACCOUNTS.find((a) => a.id === this.selectedAccountId);
+    if (!acc) return;
+    pc98Audio.playSelect();
+    const ok = await this.openSystemDialog({
+      title: '✦ ARQUIVAR CONTA ✦',
+      body: `Arquivar <strong>${escapeHtml(acc.name)}</strong>?`,
+      confirmLabel: '[ARQUIVAR]',
+      cancelLabel: '[CANCELAR]',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.archiveAccount(acc.id);
+      this.selectedAccountId = null;
+      await this.reloadAfterWrite('Conta arquivada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao arquivar: ${String(error)}`,
+        'error',
+      );
     }
   }
 
@@ -548,6 +1242,14 @@ export class KakeiboApp {
     let totalMarketValue = 0;
     let totalGain = 0;
 
+    if (HOLDINGS.length === 0) {
+      html += `
+        <tr>
+          <td colspan="7" style="padding: 16px; text-align: center;" class="micro-label">NENHUM ATIVO NA CARTEIRA</td>
+        </tr>
+      `;
+    }
+
     HOLDINGS.forEach(h => {
       const returnClass = (h.gainPercent ?? 0) >= 0 ? 'txt-green' : 'txt-pink';
       totalMarketValue += h.marketValueCents ?? h.totalCostCents;
@@ -578,6 +1280,19 @@ export class KakeiboApp {
 
     const consolidatedEl = document.getElementById('val-consolidated-portfolio');
     if (consolidatedEl) consolidatedEl.textContent = formatMoney(totalMarketValue);
+
+    const retEl = document.getElementById('val-portfolio-return');
+    if (retEl) {
+      const pct = PORTFOLIO?.totalGainPercent;
+      if (pct == null || HOLDINGS.length === 0) {
+        retEl.textContent = 'RENTABILIDADE: —';
+        retEl.className = 'micro-label';
+      } else {
+        const sign = pct >= 0 ? '+' : '';
+        retEl.textContent = `RENTABILIDADE: ${sign}${pct.toFixed(1)}%`;
+        retEl.className = `micro-label ${pct >= 0 ? 'txt-green' : 'txt-pink'}`;
+      }
+    }
   }
 
   // ── JOURNAL — uses new Transaction model with status/tags/payees ──────────
@@ -586,14 +1301,42 @@ export class KakeiboApp {
     const container = document.getElementById('journal-rows-container');
     const batchBar = document.getElementById('journal-batch-bar');
     const selectedCountEl = document.getElementById('batch-selected-count');
+    const accountBanner = document.getElementById('journal-account-filter-banner');
 
     if (!container) return;
     container.innerHTML = '';
     this.currentFilterKey = filterKey;
 
+    const accountFilter = this.selectedAccountId
+      ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+      : null;
+
+    if (accountBanner) {
+      if (accountFilter) {
+        accountBanner.classList.remove('hidden');
+        accountBanner.style.display = 'flex';
+        accountBanner.innerHTML = `
+          <span class="micro-label" style="color: var(--c-amber);">CONTA: ${escapeHtml(accountFilter.name)}</span>
+          <button type="button" id="btn-clear-journal-account-filter" class="pc98-btn" style="padding: 2px 8px; font-size: 11px;">[LIMPAR]</button>
+        `;
+        accountBanner.querySelector('#btn-clear-journal-account-filter')?.addEventListener('click', () => {
+          pc98Audio.playClick();
+          this.selectedAccountId = null;
+          this.renderAccounts();
+          this.renderJournalTransactions(this.currentFilterKey);
+        });
+      } else {
+        accountBanner.classList.add('hidden');
+        accountBanner.style.display = 'none';
+        accountBanner.innerHTML = '';
+      }
+    }
+
     const filtered = this.transactions.filter(tx => {
       // Exclude transfers from journal view
       if (tx.type === 'transfer') return false;
+
+      if (this.selectedAccountId && tx.accountId !== this.selectedAccountId) return false;
 
       let matchesFilter = true;
       if (filterKey === 'income') matchesFilter = tx.amountCents > 0;
@@ -761,6 +1504,10 @@ export class KakeiboApp {
     if (!container) return;
     container.innerHTML = '';
 
+    if (RECURRENCES.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA RECORRÊNCIA</div>`;
+    }
+
     RECURRENCES.forEach(rec => {
       const amount = rec.amountCents ? formatMoney(rec.amountCents) : `~${formatMoney(rec.estimatedCents ?? 0)}`;
       const typeClass = rec.type === 'income' ? 'txt-green' : 'txt-pink';
@@ -790,6 +1537,33 @@ export class KakeiboApp {
 
       container.appendChild(el);
     });
+
+    const active = RECURRENCES.filter((r) => r.isActive);
+    let incomeCents = 0;
+    let expenseCents = 0;
+    for (const rec of active) {
+      const cents = rec.amountCents ?? rec.estimatedCents ?? 0;
+      if (rec.type === 'income') incomeCents += cents;
+      else if (rec.type === 'expense') expenseCents += cents;
+    }
+    const balanceCents = incomeCents - expenseCents;
+
+    const incomeEl = document.getElementById('rec-sum-income');
+    const expenseEl = document.getElementById('rec-sum-expense');
+    const balanceEl = document.getElementById('rec-sum-balance');
+    if (incomeEl) {
+      incomeEl.textContent = `+${formatMoney(incomeCents)}`;
+      incomeEl.className = 'num-currency txt-green';
+    }
+    if (expenseEl) {
+      expenseEl.textContent = `-${formatMoney(expenseCents)}`;
+      expenseEl.className = 'num-currency txt-pink';
+    }
+    if (balanceEl) {
+      const sign = balanceCents >= 0 ? '+' : '';
+      balanceEl.textContent = `${sign}${formatMoney(balanceCents)}`;
+      balanceEl.className = `num-currency ${balanceCents >= 0 ? 'txt-green' : 'txt-pink'}`;
+    }
   }
 
   // ── GOALS — new view ──────────────────────────────────────────────────────
@@ -798,6 +1572,10 @@ export class KakeiboApp {
     const container = document.getElementById('goals-list');
     if (!container) return;
     container.innerHTML = '';
+
+    if (GOALS.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA META</div>`;
+    }
 
     GOALS.forEach(goal => {
       const pct = Math.min(100, Math.round(goal.progressPercent));
@@ -843,6 +1621,42 @@ export class KakeiboApp {
 
       container.appendChild(el);
     });
+
+    const totalSaved = GOALS.reduce((sum, g) => sum + (g.savedCents ?? 0), 0);
+    const totalTarget = GOALS.reduce((sum, g) => sum + (g.targetCents ?? 0), 0);
+    const globalPct = totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0;
+
+    const savedEl = document.getElementById('goals-sum-saved');
+    const targetEl = document.getElementById('goals-sum-target');
+    const progressEl = document.getElementById('goals-sum-progress');
+    if (savedEl) savedEl.textContent = formatMoney(totalSaved);
+    if (targetEl) targetEl.textContent = formatMoney(totalTarget);
+    if (progressEl) progressEl.textContent = `${globalPct}%`;
+
+    const alertBox = document.getElementById('goals-alert-box');
+    if (alertBox) {
+      const active = GOALS.filter((g) => g.status === 'active');
+      if (active.length === 0) {
+        alertBox.innerHTML = `
+          <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+          Nenhuma meta ativa. Crie a primeira com [+ NOVA META].
+        `;
+      } else {
+        const primary = active[0]!;
+        if (primary.requiredMonthlyCents != null && primary.requiredMonthlyCents > 0) {
+          alertBox.innerHTML = `
+            <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+            Meta <strong>${escapeHtml(primary.name)}</strong>: aporte necessário de
+            <span class="num-currency txt-amber">${formatMoney(primary.requiredMonthlyCents)}</span>/mês para atingir o prazo.
+          `;
+        } else {
+          alertBox.innerHTML = `
+            <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+            Meta <strong>${escapeHtml(primary.name)}</strong> no ritmo — sem aporte mensal adicional necessário.
+          `;
+        }
+      }
+    }
   }
 
   // ── RULES — new view ──────────────────────────────────────────────────────
@@ -851,6 +1665,11 @@ export class KakeiboApp {
     const container = document.getElementById('rules-list');
     if (!container) return;
     container.innerHTML = '';
+
+    if (RULES.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA REGRA</div>`;
+      return;
+    }
 
     RULES.forEach(rule => {
       const el = document.createElement('div');
@@ -873,6 +1692,48 @@ export class KakeiboApp {
       `;
 
       container.appendChild(el);
+    });
+  }
+
+  // ── IMPORT HISTORY ────────────────────────────────────────────────────────
+
+  private renderImportHistory() {
+    const tbody = document.getElementById('import-history-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (IMPORT_BATCHES.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="padding: 12px; text-align: center;" class="micro-label">NENHUM EXTRATO IMPORTADO</td></tr>`;
+      return;
+    }
+
+    IMPORT_BATCHES.forEach((batch) => {
+      const rawDate = batch.appliedAt || batch.createdAt;
+      const dateLabel = rawDate && rawDate.includes('T')
+        ? formatDate(rawDate.slice(0, 10))
+        : (rawDate ? formatDate(rawDate.slice(0, 10)) : '—');
+      const statusLabelText =
+        batch.status === 'applied' ? 'APLICADO' :
+        batch.status === 'reverted' ? 'REVERTIDO' :
+        'PARSEADO';
+      const statusClass =
+        batch.status === 'applied' ? 'txt-green' :
+        batch.status === 'reverted' ? 'txt-pink' :
+        'txt-amber';
+      const txCount = batch.stats
+        ? (batch.stats.created ?? batch.stats.transactions ?? batch.stats.total ?? batch.stats.newRows ?? 0)
+        : 0;
+
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px dotted var(--c-grey-blue)';
+      tr.innerHTML = `
+        <td style="padding: 6px;">${escapeHtml(dateLabel)}</td>
+        <td style="padding: 6px;">${escapeHtml(batch.filename)}</td>
+        <td style="padding: 6px;">${escapeHtml(getAccountName(batch.accountId))}</td>
+        <td style="padding: 6px;" class="num-currency">${txCount}</td>
+        <td style="padding: 6px; text-align: right;" class="micro-label ${statusClass}">[${statusLabelText}]</td>
+      `;
+      tbody.appendChild(tr);
     });
   }
 
@@ -908,14 +1769,15 @@ export class KakeiboApp {
 
   private renderCategoryBreakdown() {
     setTimeout(() => {
+      const hasMonthData = (currentMonthIncome() + currentMonthExpense()) > 0;
       const sankeyCanvas = document.getElementById('sankey-chart-canvas') as HTMLCanvasElement;
-      if (sankeyCanvas) PC98ChartSuite.renderSankeyChart(sankeyCanvas);
+      if (sankeyCanvas) PC98ChartSuite.renderSankeyChart(sankeyCanvas, hasMonthData);
 
       const waterfallCanvas = document.getElementById('waterfall-chart-canvas') as HTMLCanvasElement;
-      if (waterfallCanvas) PC98ChartSuite.renderWaterfallChart(waterfallCanvas);
+      if (waterfallCanvas) PC98ChartSuite.renderWaterfallChart(waterfallCanvas, monthWaterfallSteps());
 
       const donutCanvas = document.getElementById('donut-chart-canvas') as HTMLCanvasElement;
-      if (donutCanvas) PC98ChartSuite.renderDonutChart(donutCanvas);
+      if (donutCanvas) PC98ChartSuite.renderDonutChart(donutCanvas, categoryDonutSlices());
     }, 50);
 
     const picker = document.getElementById('cat-detail-picker');
@@ -923,6 +1785,9 @@ export class KakeiboApp {
       picker.innerHTML = '';
       // Show parent categories only
       const parentCats = CATEGORIES.filter(c => c.parentId === null && c.kind === 'expense');
+      if (!this.selectedCategoryDetail && parentCats[0]) {
+        this.selectedCategoryDetail = parentCats[0].id;
+      }
       parentCats.forEach(cat => {
         const isSelected = cat.id === this.selectedCategoryDetail;
         const iconSvg = this.getCategoryIcon(cat.name);
@@ -1039,77 +1904,134 @@ export class KakeiboApp {
 
   // ── AI RISK CONFIRMATION ──────────────────────────────────────────────────
 
-  private triggerAiRiskConfirmation(diffText: string, onApprove: () => void) {
+  private buildAiConfirmListHtml(items: Array<{ token: string; summary: string; reason: string }>): string {
+    return items
+      .map(
+        (p, idx) =>
+          `<div class="ai-risk-item" data-confirm-idx="${idx}">
+             <div><strong>${escapeHtml(p.summary)}</strong></div>
+             <div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(p.reason)}</div>
+             <div class="ai-risk-item-actions">
+               <button type="button" class="pc98-btn btn-alert btn-ai-approve-one" data-token="${escapeHtml(p.token)}" style="padding: 2px 8px; font-size: 11px;">[APROVAR]</button>
+             </div>
+           </div>`,
+      )
+      .join('');
+  }
+
+  private renderPendingAiConfirmMeta() {
+    const pending = this.pendingAiConfirm;
+    if (!pending) return;
+    const { meta, items } = pending;
+    const count = items.length;
+    meta.innerHTML = `
+      <span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO · ${count}]</span>
+      <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+        <button type="button" class="pc98-btn btn-ai-reject-inline" style="padding: 2px 8px; font-size: 11px;">[REJEITAR]</button>
+        <button type="button" class="pc98-btn btn-alert btn-ai-approve-inline" style="padding: 2px 8px; font-size: 11px;">[APROVAR TODAS]</button>
+      </div>
+      <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">"confirmo" no chat aprova todas</div>
+    `;
+
+    meta.querySelector('.btn-ai-approve-inline')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.approveAllPendingAiConfirm();
+    });
+    meta.querySelector('.btn-ai-reject-inline')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.rejectAllPendingAiConfirm();
+    });
+  }
+
+  private approveOnePendingAiConfirm(token: string) {
+    const pending = this.pendingAiConfirm;
+    if (!pending || this.isTyping) return;
+    const idx = pending.items.findIndex((i) => i.token === token);
+    if (idx < 0) return;
+    pending.items.splice(idx, 1);
+    void this.sendChatMessage(pending.originalMessage, [token], { silentUser: true });
+    if (pending.items.length === 0) {
+      this.pendingAiConfirm = null;
+      this.aiRiskDismiss?.();
+      pending.meta.innerHTML = `<span class="micro-label txt-green">[APROVADO]</span>`;
+      return;
+    }
+    this.renderPendingAiConfirmMeta();
+    this.refreshAiRiskModalContent();
+  }
+
+  private approveAllPendingAiConfirm() {
+    const pending = this.pendingAiConfirm;
+    if (!pending || pending.items.length === 0 || this.isTyping) return;
+    const tokens = pending.items.map((i) => i.token);
+    this.pendingAiConfirm = null;
+    this.aiRiskDismiss?.();
+    pending.meta.innerHTML = `<span class="micro-label txt-green">[APROVANDO…]</span>`;
+    void this.sendChatMessage(pending.originalMessage, tokens, { silentUser: true });
+  }
+
+  private rejectAllPendingAiConfirm() {
+    const pending = this.pendingAiConfirm;
+    this.pendingAiConfirm = null;
+    this.aiRiskReject?.();
+    if (pending) {
+      pending.meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+    }
+  }
+
+  private refreshAiRiskModalContent() {
+    const pending = this.pendingAiConfirm;
+    const diffEl = document.getElementById('ai-risk-diff-text');
+    if (!pending || !diffEl) return;
+    diffEl.innerHTML = this.buildAiConfirmListHtml(pending.items);
+    diffEl.querySelectorAll('.btn-ai-approve-one').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const token = (btn as HTMLElement).dataset.token;
+        if (!token) return;
+        pc98Audio.playSelect();
+        this.approveOnePendingAiConfirm(token);
+      });
+    });
+  }
+
+  private triggerAiRiskConfirmation() {
+    const pending = this.pendingAiConfirm;
     const modal = document.getElementById('modal-ai-risk-confirm');
     const diffEl = document.getElementById('ai-risk-diff-text');
-    const approveBtn = document.getElementById('btn-confirm-risk');
-    const rejectBtn = document.getElementById('btn-reject-risk');
+    const approveBtn = document.getElementById('btn-confirm-risk') as HTMLButtonElement | null;
+    const rejectBtn = document.getElementById('btn-reject-risk') as HTMLButtonElement | null;
     const closeBtn = document.getElementById('btn-close-risk');
+    if (!pending || !modal || !diffEl) return;
 
-    if (!modal || !diffEl) return;
-
-    diffEl.innerHTML = diffText;
+    this.refreshAiRiskModalContent();
     modal.classList.remove('hidden');
     pc98Audio.playWarning();
 
-    const cleanup = () => {
+    const cleanup = (rejected: boolean) => {
       modal.classList.add('hidden');
+      document.removeEventListener('keydown', onKey);
+      this.aiRiskReject = null;
+      this.aiRiskDismiss = null;
+      if (rejected) {
+        const p = this.pendingAiConfirm;
+        this.pendingAiConfirm = null;
+        if (p) p.meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+      }
     };
-
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cleanup(true); }
+    };
+    this.aiRiskReject = () => cleanup(true);
+    this.aiRiskDismiss = () => cleanup(false);
     if (approveBtn) {
-      approveBtn.onclick = () => {
-        pc98Audio.playSelect();
-        cleanup();
-        onApprove();
-      };
+      approveBtn.onclick = () => { pc98Audio.playSelect(); this.approveAllPendingAiConfirm(); };
     }
-
-    if (rejectBtn) rejectBtn.onclick = cleanup;
-    if (closeBtn) closeBtn.onclick = cleanup;
-  }
-
-  // ── STYLE GUIDE ───────────────────────────────────────────────────────────
-
-  private renderStyleGuide() {
-    const swatchContainer = document.getElementById('swatch-grid-container');
-    if (swatchContainer && swatchContainer.children.length === 0) {
-      const colors = [
-        { name: 'VOID BLACK', hex: '#0A0A14' }, { name: 'DEEP NAVY', hex: '#14142B' },
-        { name: 'INDIGO', hex: '#22224A' }, { name: 'SLATE', hex: '#333C57' },
-        { name: 'GREY BLUE', hex: '#566C86' }, { name: 'PALE GREY', hex: '#C0CBDC' },
-        { name: 'BONE WHITE', hex: '#F2F0E5' }, { name: 'PURE WHITE', hex: '#FFFFFF' },
-        { name: 'BLUE', hex: '#3B5DC9' }, { name: 'SKY', hex: '#41A6F6' },
-        { name: 'PALE CYAN', hex: '#73EFF7' }, { name: 'GREEN', hex: '#38B764' },
-        { name: 'AMBER', hex: '#F4B41B' }, { name: 'MAGENTA PINK', hex: '#E5537A' },
-        { name: 'PURPLE', hex: '#A23E8C' }, { name: 'TAN', hex: '#E4A672' },
-      ];
-
-      colors.forEach(c => {
-        const card = document.createElement('div');
-        card.className = 'swatch-card';
-        card.innerHTML = `
-          <div class="swatch-box" style="background-color: ${c.hex};"></div>
-          <div class="swatch-info">
-            <span style="color: var(--c-bone-white); font-weight: bold;">${c.name}</span>
-            <span style="color: var(--c-pale-cyan);">${c.hex}</span>
-          </div>
-        `;
-        swatchContainer.appendChild(card);
-      });
+    if (rejectBtn) {
+      rejectBtn.onclick = () => this.rejectAllPendingAiConfirm();
+      rejectBtn.focus();
     }
-
-    const iconContainer = document.getElementById('icon-sheet-container');
-    if (iconContainer && iconContainer.children.length === 0) {
-      Object.keys(BITMAP_ICONS).forEach(key => {
-        const tile = document.createElement('div');
-        tile.className = 'icon-tile';
-        tile.innerHTML = `
-          <div style="width: 16px; height: 16px;">${BITMAP_ICONS[key]}</div>
-          <span class="micro-label">${key}</span>
-        `;
-        iconContainer.appendChild(tile);
-      });
-    }
+    if (closeBtn) closeBtn.onclick = () => cleanup(true);
+    document.addEventListener('keydown', onKey);
   }
 
   // ── AI INSIGHT TYPEWRITER ─────────────────────────────────────────────────
@@ -1148,6 +2070,17 @@ export class KakeiboApp {
     textEl.innerHTML = '';
     this.isTyping = true;
 
+    const finishTyping = () => {
+      const badgeHtml = badges.map((b) => `<span class="micro-label txt-cyan">[${escapeHtml(b)}]</span>`).join(' ');
+      textEl.innerHTML = `${escapeHtml(fullText)}<br/><div style="margin-top: 4px;">${badgeHtml}</div><span class="blinking-cursor"></span>`;
+      this.isTyping = false;
+    };
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finishTyping();
+      return;
+    }
+
     let charIdx = 0;
     const typeNextChar = () => {
       if (charIdx < fullText.length) {
@@ -1156,9 +2089,7 @@ export class KakeiboApp {
         charIdx += 1;
         setTimeout(typeNextChar, 25);
       } else {
-        const badgeHtml = badges.map((b) => `<span class="micro-label txt-cyan">[${escapeHtml(b)}]</span>`).join(' ');
-        textEl.innerHTML = `${escapeHtml(fullText)}<br/><div style="margin-top: 4px;">${badgeHtml}</div><span class="blinking-cursor"></span>`;
-        this.isTyping = false;
+        finishTyping();
       }
     };
 
@@ -1197,8 +2128,12 @@ export class KakeiboApp {
     });
 
     if (tabId === 'chat') {
-      this.setAiDockOpen(true);
-      setTimeout(() => document.getElementById('chat-input-text')?.focus(), 40);
+      if (this.aiDockCollapsed) {
+        this.expandAiDock();
+      } else {
+        this.setAiDockOpen(true);
+        setTimeout(() => document.getElementById('chat-input-text')?.focus(), 40);
+      }
       this.renderDashboardCharts();
       return;
     }
@@ -1211,6 +2146,8 @@ export class KakeiboApp {
 
     if (tabId === 'category') {
       setTimeout(() => this.renderCategoryBreakdown(), 50);
+    } else if (tabId === 'add') {
+      this.prepareAddForm();
     } else if (tabId === 'dashboard') {
       this.renderDashboardCharts();
     } else if (tabId === 'investments') {
@@ -1222,8 +2159,6 @@ export class KakeiboApp {
         const projCanvas = document.getElementById('projection-chart-canvas') as HTMLCanvasElement;
         if (projCanvas) PC98ChartSuite.renderProjectionChart(projCanvas, PROJECTION);
       }, 50);
-    } else if (tabId === 'style-guide') {
-      this.renderStyleGuide();
     }
   }
 
@@ -1322,7 +2257,11 @@ export class KakeiboApp {
    * e **não foram executadas**: a interface abre o modal de confirmação e só então
    * reenvia com o token de aprovação.
    */
-  private async sendChatMessage(query: string, approvedTokens: string[] = []) {
+  private async sendChatMessage(
+    query: string,
+    approvedTokens: string[] = [],
+    options: { silentUser?: boolean } = {},
+  ) {
     const text = query.trim();
     if (!text || this.isTyping) return;
 
@@ -1331,20 +2270,22 @@ export class KakeiboApp {
 
     // Bolha do usuário. `textContent` em vez de innerHTML: a mensagem é texto do
     // usuário e não deve ser interpretada como HTML.
-    const userBubble = document.createElement('div');
-    userBubble.className = 'chat-bubble-row user-side';
-    const userInner = document.createElement('div');
-    userInner.className = 'chat-bubble user-bubble';
-    const userHeader = document.createElement('div');
-    userHeader.className = 'micro-label';
-    userHeader.style.cssText = 'color: var(--c-sky); margin-bottom: 4px;';
-    userHeader.textContent = this.userName;
-    const userBody = document.createElement('div');
-    userBody.textContent = text;
-    userInner.append(userHeader, userBody);
-    userBubble.appendChild(userInner);
-    streamBox.appendChild(userBubble);
-    streamBox.scrollTop = streamBox.scrollHeight;
+    if (!options.silentUser) {
+      const userBubble = document.createElement('div');
+      userBubble.className = 'chat-bubble-row user-side';
+      const userInner = document.createElement('div');
+      userInner.className = 'chat-bubble user-bubble';
+      const userHeader = document.createElement('div');
+      userHeader.className = 'micro-label';
+      userHeader.style.cssText = 'color: var(--c-sky); margin-bottom: 4px;';
+      userHeader.textContent = this.userName;
+      const userBody = document.createElement('div');
+      userBody.textContent = text;
+      userInner.append(userHeader, userBody);
+      userBubble.appendChild(userInner);
+      streamBox.appendChild(userBubble);
+      streamBox.scrollTop = streamBox.scrollHeight;
+    }
 
     // Bolha da IA, preenchida conforme o stream chega.
     const aiBubble = document.createElement('div');
@@ -1409,7 +2350,7 @@ export class KakeiboApp {
 
   /** Habilita/desabilita a entrada durante a resposta. */
   private setChatBusy(busy: boolean) {
-    const input = document.getElementById('chat-input') as HTMLInputElement | null;
+    const input = document.getElementById('chat-input-text') as HTMLInputElement | null;
     const send = document.getElementById('btn-send-chat') as HTMLButtonElement | null;
     if (input) {
       input.disabled = busy;
@@ -1420,45 +2361,44 @@ export class KakeiboApp {
 
   /**
    * Trata o que voltou do turno: confirmações pendentes, escritas e undo.
+   * Após escrita da IA, recarrega o store completo para a tela atualizar na hora.
    */
   private handleAiOutcome(
-    result: { pendingConfirmations: AiChatResult['pendingConfirmations']; changeSetIds: string[] },
+    result: {
+      pendingConfirmations: AiChatResult['pendingConfirmations'];
+      changeSetIds: string[];
+      executedTools?: string[];
+    },
     originalMessage: string,
     meta: HTMLElement,
   ) {
     // Escritas aconteceram: recarrega os dados e oferece desfazer.
     if (result.changeSetIds.length > 0) {
       const changeSetId = result.changeSetIds[result.changeSetIds.length - 1]!;
-      void this.reloadAfterWrite(`${result.changeSetIds.length} alteração(ões) aplicada(s)`, changeSetId);
+      const tools = result.executedTools ?? [];
+      const message = summarizeAiWrites(tools, result.changeSetIds.length);
 
-      meta.innerHTML = `<span class="micro-label txt-green">[GRAVADO]</span>`;
+      meta.innerHTML = `<span class="micro-label txt-green">[GRAVADO · ATUALIZANDO…]</span>`;
       pc98Audio.playSelect();
+
+      void this.reloadAfterWrite(message, changeSetId).then(() => {
+        meta.innerHTML = `<span class="micro-label txt-green">[GRAVADO · TELA ATUALIZADA]</span>`;
+        this.focusViewAfterAiWrites(tools);
+      });
     }
 
     if (result.pendingConfirmations.length === 0) return;
 
     // Nada foi escrito nestas: pede aprovação e reenvia com o token.
-    const pending = result.pendingConfirmations;
-    const listHtml = pending
-      .map(
-        (p) =>
-          `<div style="margin-bottom: 8px;">
-             <div><strong>${escapeHtml(p.summary)}</strong></div>
-             <div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(p.reason)}</div>
-           </div>`,
-      )
-      .join('');
+    const items = result.pendingConfirmations.map((p) => ({
+      token: p.token,
+      summary: p.summary,
+      reason: p.reason,
+    }));
 
-    meta.innerHTML = `<span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO]</span>`;
-
-    this.triggerAiRiskConfirmation(listHtml, () => {
-      void this.sendChatMessage(
-        'Confirmado, pode executar.',
-        pending.map((p) => p.token),
-      );
-    });
-
-    void originalMessage;
+    this.pendingAiConfirm = { items, originalMessage, meta };
+    this.renderPendingAiConfirmMeta();
+    this.triggerAiRiskConfirmation();
   }
 
   /** Recarrega o store e redesenha, avisando com opção de desfazer. */
@@ -1472,6 +2412,251 @@ export class KakeiboApp {
       this.notify(
         `Alteração feita, mas não consegui recarregar a tela: ${error instanceof Error ? error.message : String(error)}`,
         'warn',
+      );
+    }
+  }
+
+  /**
+   * Depois que a IA escreve, leva o usuário à tela onde a mudança aparece —
+   * evita o "já criei" sem nada visível na aba atual.
+   */
+  private focusViewAfterAiWrites(tools: string[]) {
+    const unique = new Set(tools);
+    if (unique.has('create_goal') || unique.has('contribute_to_goal')) {
+      if (this.activeTab !== 'goals') this.switchTab('goals');
+      else this.renderGoals();
+      return;
+    }
+    if (
+      unique.has('create_transaction') ||
+      unique.has('update_transaction') ||
+      unique.has('delete_transaction') ||
+      unique.has('create_transfer') ||
+      unique.has('categorize_transaction') ||
+      unique.has('bulk_categorize')
+    ) {
+      if (this.activeTab !== 'transactions') this.switchTab('transactions');
+      else this.renderJournalTransactions(this.currentFilterKey);
+      return;
+    }
+    if (unique.has('create_installment_plan') || unique.has('pay_card_invoice')) {
+      if (this.activeTab !== 'accounts') this.switchTab('accounts');
+      else this.renderAccounts();
+      return;
+    }
+    if (unique.has('set_budget')) {
+      if (this.activeTab !== 'category') this.switchTab('category');
+      return;
+    }
+    if (unique.has('create_recurrence') || unique.has('confirm_occurrence')) {
+      if (this.activeTab !== 'recurrences') this.switchTab('recurrences');
+      return;
+    }
+  }
+
+  /** Preenche conta/data/categorias do formulário NOVO REGISTRO com dados reais. */
+  private prepareAddForm() {
+    const dateInput = document.getElementById('full-input-date') as HTMLInputElement | null;
+    if (dateInput) dateInput.value = TODAY;
+
+    const accountSelect = document.getElementById('full-input-account') as HTMLSelectElement | null;
+    if (accountSelect) {
+      const previous = accountSelect.value;
+      accountSelect.innerHTML = '';
+      const spendable = ACCOUNTS.filter((a) => !a.isArchived && a.kind !== 'investment');
+      for (const account of spendable) {
+        const opt = document.createElement('option');
+        opt.value = account.id;
+        opt.textContent = account.name;
+        accountSelect.appendChild(opt);
+      }
+      if (previous && spendable.some((a) => a.id === previous)) {
+        accountSelect.value = previous;
+      } else {
+        const checking = spendable.find((a) => a.kind === 'checking');
+        if (checking) accountSelect.value = checking.id;
+      }
+    }
+
+    const grid = document.getElementById('add-cat-tile-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    // Folhas de despesa + raízes sem filhas (novos grupos ainda sem subcategoria).
+    const expenseCats = CATEGORIES.filter((c) => c.kind === 'expense' && !c.isArchived);
+    const hasChildren = new Set(
+      expenseCats.filter((c) => c.parentId).map((c) => c.parentId as string),
+    );
+    const tileCats = expenseCats
+      .filter((c) => c.parentId !== null || !hasChildren.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+    if (
+      this.selectedAddCategoryId &&
+      !tileCats.some((c) => c.id === this.selectedAddCategoryId)
+    ) {
+      this.selectedAddCategoryId = null;
+    }
+    if (!this.selectedAddCategoryId && tileCats[0]) {
+      this.selectedAddCategoryId = tileCats[0].id;
+    }
+
+    for (const cat of tileCats) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `pc98-btn text-xs ${cat.id === this.selectedAddCategoryId ? 'btn-primary' : ''}`;
+      btn.style.padding = '8px 6px';
+      const parentName =
+        cat.parentId != null
+          ? CATEGORIES.find((p) => p.id === cat.parentId)?.name
+          : null;
+      btn.textContent = cat.name.toUpperCase();
+      btn.title = parentName ? `${parentName} › ${cat.name}` : cat.name;
+      btn.setAttribute('aria-pressed', cat.id === this.selectedAddCategoryId ? 'true' : 'false');
+      btn.addEventListener('click', () => {
+        pc98Audio.playSelect();
+        this.selectedAddCategoryId = cat.id;
+        this.prepareAddForm();
+      });
+      grid.appendChild(btn);
+    }
+
+    if (tileCats.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'micro-label';
+      empty.style.color = 'var(--c-grey-blue)';
+      empty.style.gridColumn = '1 / -1';
+      empty.textContent = 'Nenhuma categoria ainda. Crie uma com [+ NOVA CATEGORIA].';
+      grid.appendChild(empty);
+    }
+  }
+
+  private syncCategoryParentOptions() {
+    const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
+    const parentSelect = document.getElementById('category-input-parent') as HTMLSelectElement | null;
+    if (!parentSelect) return;
+
+    const kind = (kindSelect?.value || 'expense') as 'expense' | 'income';
+    const previous = parentSelect.value;
+    parentSelect.innerHTML = '';
+
+    const rootOpt = document.createElement('option');
+    rootOpt.value = '';
+    rootOpt.textContent = '— categoria raiz (novo grupo) —';
+    parentSelect.appendChild(rootOpt);
+
+    const roots = CATEGORIES.filter(
+      (c) => c.kind === kind && c.parentId === null && !c.isArchived,
+    ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+    for (const root of roots) {
+      const opt = document.createElement('option');
+      opt.value = root.id;
+      opt.textContent = root.name;
+      parentSelect.appendChild(opt);
+    }
+
+    if (previous && roots.some((r) => r.id === previous)) {
+      parentSelect.value = previous;
+    } else if (kind === 'expense') {
+      const alimentacao = roots.find((r) => /alimenta/i.test(r.name));
+      if (alimentacao) parentSelect.value = alimentacao.id;
+      else if (roots[0]) parentSelect.value = roots[0].id;
+    }
+  }
+
+  private openCategoryForm() {
+    const modal = document.getElementById('modal-category-form');
+    const nameInput = document.getElementById('category-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
+    if (nameInput) nameInput.value = '';
+    if (kindSelect) kindSelect.value = 'expense';
+    this.syncCategoryParentOptions();
+    modal?.classList.remove('hidden');
+    nameInput?.focus();
+  }
+
+  private closeCategoryForm() {
+    document.getElementById('modal-category-form')?.classList.add('hidden');
+  }
+
+  private async submitCategoryForm() {
+    const nameInput = document.getElementById('category-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
+    const parentSelect = document.getElementById('category-input-parent') as HTMLSelectElement | null;
+
+    const name = nameInput?.value.trim() ?? '';
+    if (!name) {
+      this.notify('Informe o nome da categoria.', 'warn');
+      return;
+    }
+
+    const kind = (kindSelect?.value || 'expense') as 'expense' | 'income';
+    const parentId = parentSelect?.value || undefined;
+
+    try {
+      const result = await api.createCategory({
+        name,
+        kind,
+        ...(parentId ? { parentId } : {}),
+      });
+      this.closeCategoryForm();
+      // Só pré-seleciona no form de registro se for despesa utilizável (folha ou raiz).
+      if (kind === 'expense') {
+        this.selectedAddCategoryId = result.data.id;
+      }
+      await this.reloadAfterWrite(`Categoria "${result.data.name}" criada.`, result.changeSetId);
+      if (this.activeTab === 'add') this.prepareAddForm();
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar categoria: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  /** Grava o lançamento do formulário via API (nada de ID fictício local). */
+  private async submitNewTransaction() {
+    pc98Audio.playSelect();
+
+    const amtInput = document.getElementById('full-input-amount') as HTMLInputElement;
+    const memoInput = document.getElementById('full-input-memo') as HTMLInputElement;
+    const dateInput = document.getElementById('full-input-date') as HTMLInputElement;
+    const accountSelect = document.getElementById('full-input-account') as HTMLSelectElement | null;
+
+    const amt = parseFloat(amtInput.value);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      this.notify('Informe um valor maior que zero.', 'warn');
+      return;
+    }
+
+    const accountId =
+      accountSelect?.value ||
+      ACCOUNTS.find((a) => a.kind === 'checking')?.id ||
+      ACCOUNTS.find((a) => a.kind !== 'credit_card')?.id;
+
+    if (!accountId) {
+      this.notify('Crie uma conta antes de lançar.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.createTransaction({
+        accountId,
+        type: 'expense',
+        amountCents: Math.round(amt * 100),
+        date: toIsoDate(dateInput.value || TODAY),
+        description: (memoInput.value || 'Nova despesa').trim(),
+        categoryId: this.selectedAddCategoryId ?? undefined,
+      });
+      (document.getElementById('form-full-add-tx') as HTMLFormElement | null)?.reset();
+      this.prepareAddForm();
+      await this.reloadAfterWrite('Lançamento registrado.', result.changeSetId);
+      this.switchTab('transactions');
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao registrar: ${String(error)}`,
+        'error',
       );
     }
   }
@@ -1598,7 +2783,6 @@ export class KakeiboApp {
       else if (e.key === '6') this.switchTab('investments');
       else if (e.key === '7') this.switchTab('importer');
       else if (e.key === '8') this.switchTab('category');
-      else if (e.key === '9') this.switchTab('style-guide');
       else if (e.key.toLowerCase() === 'r') this.switchTab('recurrences');
       else if (e.key.toLowerCase() === 'm') this.switchTab('goals');
       else if (e.key.toLowerCase() === 'g') this.switchTab('rules');
@@ -1608,6 +2792,10 @@ export class KakeiboApp {
         const helpModal = document.getElementById('modal-help-guide');
         helpModal?.classList.toggle('hidden');
       } else if (e.key === 'Escape') {
+        if (this.aiRiskReject) {
+          this.aiRiskReject();
+          return;
+        }
         document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
         if (window.matchMedia('(max-width: 1100px)').matches) {
           this.setAiDockOpen(false);
@@ -1624,17 +2812,25 @@ export class KakeiboApp {
       this.advanceAiDialogue();
     });
 
-    // AI DOCK (narrow layouts)
+    // AI DOCK (narrow layouts + collapsed expand)
     const mobileAiBtn = document.getElementById('btn-mobile-ai');
     const closeAiDockBtn = document.getElementById('btn-close-ai-dock');
     mobileAiBtn?.addEventListener('click', () => {
       pc98Audio.playClick();
+      if (this.aiDockCollapsed) {
+        this.expandAiDock();
+        return;
+      }
       const open = !document.body.classList.contains('ai-dock-open');
       this.setAiDockOpen(open);
       if (open) document.getElementById('chat-input-text')?.focus();
     });
     closeAiDockBtn?.addEventListener('click', () => {
       pc98Audio.playClick();
+      if (this.aiDockCollapsed) {
+        this.expandAiDock();
+        return;
+      }
       this.setAiDockOpen(false);
     });
 
@@ -1665,9 +2861,10 @@ export class KakeiboApp {
         danger: true
       });
       if (ok) {
-        this.transactions = this.transactions.filter(t => !this.selectedJournalTxIds.has(t.id));
+        const ids = [...this.selectedJournalTxIds];
+        await Promise.allSettled(ids.map((id) => api.deleteTransaction(id)));
         this.selectedJournalTxIds.clear();
-        this.renderAll();
+        await this.reloadAfterWrite(`${ids.length} lançamento(s) excluído(s).`);
       }
     });
 
@@ -1687,23 +2884,95 @@ export class KakeiboApp {
       if (typeof newCatName === 'string' && newCatName.trim()) {
         const matchedCat = CATEGORIES.find(c => c.name.toLowerCase() === newCatName.trim().toLowerCase());
         if (matchedCat) {
-          this.transactions.forEach(t => {
-            if (this.selectedJournalTxIds.has(t.id)) {
-              t.categoryId = matchedCat.id;
-            }
-          });
-          this.selectedJournalTxIds.clear();
-          this.renderAll();
+          const ids = [...this.selectedJournalTxIds];
+          try {
+            const result = await api.bulkCategorize(ids, matchedCat.id);
+            this.selectedJournalTxIds.clear();
+            await this.reloadAfterWrite(`${result.data.updated} lançamento(s) recategorizado(s).`, result.changeSetId);
+          } catch (error) {
+            this.notify(
+              error instanceof ApiError ? error.message : `Falha ao recategorizar: ${String(error)}`,
+              'error',
+            );
+          }
         } else {
           await this.openSystemDialog({
             title: '✦ CATEGORIA NÃO ENCONTRADA ✦',
-            body: `Nenhuma categoria corresponde a "<strong>${newCatName}</strong>".`,
+            body: `Nenhuma categoria corresponde a "<strong>${escapeHtml(newCatName)}</strong>".`,
             confirmLabel: '[OK]',
             cancelLabel: '',
             danger: false
           });
         }
       }
+    });
+
+    document.getElementById('btn-new-account')?.addEventListener('click', () => {
+      this.openAccountForm('create');
+    });
+
+    document.getElementById('btn-new-category')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.openCategoryForm();
+    });
+    document.getElementById('category-input-kind')?.addEventListener('change', () => {
+      this.syncCategoryParentOptions();
+    });
+    document.getElementById('btn-close-category-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeCategoryForm();
+    });
+    document.getElementById('btn-cancel-category-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeCategoryForm();
+    });
+    document.getElementById('form-category')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      void this.submitCategoryForm();
+    });
+
+    document.getElementById('accounts-filter-strip')?.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('[data-accounts-filter]') as HTMLElement | null;
+      if (!target) return;
+      pc98Audio.playSelect();
+      const filter = (target.dataset.accountsFilter || 'all') as typeof this.accountsFilter;
+      this.accountsFilter = filter;
+      document.querySelectorAll('#accounts-filter-strip .filter-btn').forEach((b) => {
+        b.classList.remove('active', 'btn-primary');
+      });
+      target.classList.add('active', 'btn-primary');
+      this.renderAccounts();
+    });
+
+    document.getElementById('account-input-kind')?.addEventListener('change', () => {
+      this.syncAccountFormSections();
+    });
+    document.getElementById('account-input-has-debit')?.addEventListener('change', () => {
+      this.syncAccountFormSections();
+    });
+    document.getElementById('btn-close-account-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeAccountForm();
+    });
+    document.getElementById('btn-cancel-account-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeAccountForm();
+    });
+    document.getElementById('form-account')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      void this.submitAccountForm();
+    });
+
+    document.getElementById('btn-new-goal')?.addEventListener('click', () => {
+      void this.promptCreateGoal();
+    });
+    document.getElementById('btn-new-recurrence')?.addEventListener('click', () => {
+      void this.promptCreateRecurrence();
+    });
+    document.getElementById('btn-new-rule')?.addEventListener('click', () => {
+      void this.promptCreateRule();
     });
 
     // SAC vs PRICE HELP MODAL
@@ -1916,48 +3185,11 @@ export class KakeiboApp {
       });
     });
 
-    // Full Add Transaction Form
+    // Full Add Transaction Form — grava na API de verdade
     const fullAddForm = document.getElementById('form-full-add-tx') as HTMLFormElement;
     fullAddForm?.addEventListener('submit', (e) => {
       e.preventDefault();
-      pc98Audio.playSelect();
-
-      const amtInput = document.getElementById('full-input-amount') as HTMLInputElement;
-      const memoInput = document.getElementById('full-input-memo') as HTMLInputElement;
-      const dateInput = document.getElementById('full-input-date') as HTMLInputElement;
-
-      const amt = parseFloat(amtInput.value) || 0;
-      const memo = memoInput.value || 'Nova Despesa';
-      const dateStr = dateInput.value || new Date().toISOString().slice(0, 10);
-
-      const newTx: Transaction = {
-        id: `tx-${Date.now()}`,
-        accountId: 'acc-checking',
-        type: 'expense',
-        date: dateStr,
-        amountCents: -Math.round(amt * 100),
-        description: memo,
-        notes: null,
-        categoryId: 'cat-supermercado',
-        payeeId: null,
-        status: 'cleared',
-        transferId: null,
-        hasSplits: false,
-        installmentPlanId: null,
-        installmentNo: null,
-        installmentTotal: null,
-        recurrenceId: null,
-        cardInvoiceId: null,
-        goalId: null,
-        debtId: null,
-        tagIds: [],
-        createdBy: 'user',
-      };
-
-      this.transactions.unshift(newTx);
-      this.renderAll();
-      fullAddForm.reset();
-      this.switchTab('transactions');
+      void this.submitNewTransaction();
     });
 
     // Chat Input (also accepts NL ledger entries — replaces removed top quick-entry bar)
@@ -1968,23 +3200,37 @@ export class KakeiboApp {
       const textInput = document.getElementById('chat-input-text') as HTMLInputElement;
       const query = textInput.value.trim();
       if (!query) return;
+
+      if (this.pendingAiConfirm && AI_CONFIRM_RE.test(query)) {
+        textInput.value = '';
+        const streamBox = document.getElementById('chat-stream-box');
+        if (streamBox) {
+          const note = document.createElement('div');
+          note.className = 'chat-bubble-row ai-side';
+          note.innerHTML = `<div class="chat-bubble ai-bubble"><div class="micro-label txt-green">Confirmação recebida — aprovando todas.</div></div>`;
+          streamBox.appendChild(note);
+          streamBox.scrollTop = streamBox.scrollHeight;
+        }
+        this.approveAllPendingAiConfirm();
+        return;
+      }
+
       if (!this.commitNaturalLanguageEntry(query)) {
         this.sendChatMessage(query);
       }
       textInput.value = '';
     });
 
-    // Credit Card Pay Invoice
+    // Credit Card Pay Invoice (legacy global button — prefer per-invoice [PAGAR])
     const payInvoiceBtn = document.getElementById('btn-pay-invoice');
     payInvoiceBtn?.addEventListener('click', async () => {
       pc98Audio.playSelect();
-      await this.openSystemDialog({
-        title: '✦ FATURA PAGA ✦',
-        body: 'Fatura Nubank paga com sucesso.<br/><span class="micro-label txt-cyan">mutate() → changeSet criado para auditoria</span>',
-        confirmLabel: '[OK]',
-        cancelLabel: '',
-        danger: false
-      });
+      const openInv = CARD_INVOICES.find((inv) => inv.status === 'open' || inv.status === 'overdue');
+      if (!openInv) {
+        this.notify('Nenhuma fatura aberta para pagar.', 'warn');
+        return;
+      }
+      await this.payInvoiceById(openInv.id);
     });
 
     // Early Payment Simulation
@@ -1992,15 +3238,202 @@ export class KakeiboApp {
     simEarlyPayBtn?.addEventListener('click', async () => {
       pc98Audio.playSelect();
       const d = DEBTS[0];
-      const ratePercent = (d.annualRateBps / 100).toFixed(2);
-      await this.openSystemDialog({
-        title: `✦ SIMULAÇÃO ${d.system.toUpperCase()} ✦`,
-        body: `Ao aportar <strong class="txt-amber">R$ 10.000,00</strong> extras, você economizará aproximadamente <strong class="txt-green">R$ 8.400,00</strong> em juros futuros e reduzirá o prazo em <strong>7 parcelas</strong>.<br/><br/><span class="micro-label">Taxa: ${ratePercent}% a.a. · Parcelas restantes: ${d.remainingCount}</span>`,
-        confirmLabel: '[ENTENDI]',
-        cancelLabel: '',
-        danger: false
-      });
+      if (!d) {
+        this.notify('Nenhuma dívida cadastrada para simular.', 'warn');
+        return;
+      }
+      try {
+        const sim = await api.simulateExtra(d.id, 1000000);
+        await this.openSystemDialog({
+          title: `✦ SIMULAÇÃO ${d.system.toUpperCase()} ✦`,
+          body: `Ao aportar <strong class="txt-amber">${formatMoney(1000000)}</strong> extras em <strong>${escapeHtml(sim.debtName)}</strong>, você economizará aproximadamente <strong class="txt-green">${formatMoney(sim.interestSavedCents)}</strong> em juros e reduzirá o prazo em <strong>${sim.monthsSaved}</strong> meses (novo prazo: ${sim.newTermMonths} meses).<br/><br/><span class="micro-label">Parcelas restantes: ${d.remainingCount}</span>`,
+          confirmLabel: '[ENTENDI]',
+          cancelLabel: '',
+          danger: false
+        });
+      } catch (error) {
+        this.notify(
+          error instanceof ApiError ? error.message : `Falha na simulação: ${String(error)}`,
+          'error',
+        );
+      }
     });
+  }
+
+  private async payInvoiceById(invoiceId: string) {
+    pc98Audio.playSelect();
+    const inv = CARD_INVOICES.find((i) => i.id === invoiceId);
+    if (!inv) {
+      this.notify('Fatura não encontrada.', 'warn');
+      return;
+    }
+    const ok = await this.openSystemDialog({
+      title: '✦ PAGAR FATURA ✦',
+      body: `Pagar fatura <strong>${escapeHtml(inv.referenceMonth)}</strong> de <strong class="txt-amber">${formatMoney(inv.totalCents)}</strong>?`,
+      confirmLabel: '[PAGAR]',
+      cancelLabel: '[CANCELAR]',
+      danger: false,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.payInvoice(invoiceId);
+      await this.reloadAfterWrite('Fatura paga.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao pagar fatura: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateAccount() {
+    this.openAccountForm('create');
+  }
+
+  private async promptCreateGoal() {
+    pc98Audio.playSelect();
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA META ✦',
+      body: 'Nome da meta:',
+      confirmLabel: '[PRÓXIMO]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+
+    const targetStr = await this.openSystemDialog({
+      title: '✦ NOVA META ✦',
+      body: `Alvo de <strong>${escapeHtml(name.trim())}</strong> em R$:`,
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '1000',
+      danger: false,
+    });
+    if (typeof targetStr !== 'string') return;
+    const target = parseFloat(targetStr.replace(',', '.'));
+    if (!Number.isFinite(target) || target <= 0) {
+      this.notify('Informe um valor alvo válido.', 'warn');
+      return;
+    }
+    try {
+      const result = await api.createGoal({ name: name.trim(), targetCents: Math.round(target * 100) });
+      await this.reloadAfterWrite('Meta criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar meta: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateRecurrence() {
+    pc98Audio.playSelect();
+    if (ACCOUNTS.length === 0) {
+      this.notify('Crie uma conta antes de adicionar recorrências.', 'warn');
+      return;
+    }
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA RECORRÊNCIA ✦',
+      body: 'Nome da recorrência:',
+      confirmLabel: '[PRÓXIMO]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+
+    const amountStr = await this.openSystemDialog({
+      title: '✦ NOVA RECORRÊNCIA ✦',
+      body: `Valor mensal de <strong>${escapeHtml(name.trim())}</strong> em R$:`,
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '100',
+      danger: false,
+    });
+    if (typeof amountStr !== 'string') return;
+    const amount = parseFloat(amountStr.replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      this.notify('Informe um valor válido.', 'warn');
+      return;
+    }
+
+    const accountId =
+      ACCOUNTS.find((a) => !a.isArchived && a.kind === 'checking')?.id ||
+      ACCOUNTS.find((a) => !a.isArchived)?.id ||
+      ACCOUNTS[0]?.id;
+    if (!accountId) {
+      this.notify('Crie uma conta antes de adicionar recorrências.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.createRecurrence({
+        name: name.trim(),
+        accountId,
+        type: 'expense',
+        amountCents: Math.round(amount * 100),
+        freq: 'monthly',
+        dayOfMonth: 1,
+        startDate: TODAY,
+        autoPost: false,
+      });
+      await this.reloadAfterWrite('Recorrência criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar recorrência: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateRule() {
+    pc98Audio.playSelect();
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA REGRA ✦',
+      body: 'Nome da regra:',
+      confirmLabel: '[PRÓXIMO]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+
+    const contains = await this.openSystemDialog({
+      title: '✦ NOVA REGRA ✦',
+      body: 'Texto que a descrição deve conter:',
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof contains !== 'string' || !contains.trim()) return;
+
+    const leafCat = CATEGORIES.find((c) => c.kind === 'expense' && c.parentId && !c.isArchived);
+    if (!leafCat) {
+      this.notify('Nenhuma categoria de despesa disponível para a regra.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.createRule({
+        name: name.trim(),
+        conditions: { descriptionContains: contains.trim() },
+        actions: { categoryId: leafCat.id },
+      });
+      await this.reloadAfterWrite('Regra criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar regra: ${String(error)}`,
+        'error',
+      );
+    }
   }
 }
 

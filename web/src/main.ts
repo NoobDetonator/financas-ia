@@ -46,11 +46,11 @@ async function boot(): Promise<void> {
 
   let status;
   try {
-    status = await auth.status();
+    status = await withRetry(() => auth.status(), 5, 400);
   } catch (error) {
     setBootStatus(
       error instanceof ApiError && error.code === 'NETWORK'
-        ? 'SERVIDOR NÃO RESPONDE — inicie o backend com `npm run dev`'
+        ? 'SERVIDOR NÃO RESPONDE — inicie o backend com `npm run dev` (ou `npm start` após o build)'
         : `FALHA: ${error instanceof Error ? error.message : String(error)}`,
       true,
     );
@@ -65,6 +65,25 @@ async function boot(): Promise<void> {
   }
 
   await loadAndStart();
+}
+
+/** Retenta falhas transitórias (API ainda subindo / 5xx momentâneo). */
+async function withRetry<T>(fn: () => Promise<T>, attempts: number, delayMs: number): Promise<T> {
+  let lastError: unknown;
+  for (let i = 0; i < attempts; i += 1) {
+    try {
+      return await fn();
+    } catch (error) {
+      lastError = error;
+      const retryable =
+        error instanceof ApiError &&
+        (error.code === 'NETWORK' || error.code === 'INTERNAL' || error.message.includes('500'));
+      if (!retryable || i === attempts - 1) throw error;
+      setBootStatus(`AGUARDANDO SERVIDOR (${i + 1}/${attempts})...`);
+      await new Promise((resolve) => setTimeout(resolve, delayMs * (i + 1)));
+    }
+  }
+  throw lastError;
 }
 
 async function loadAndStart(): Promise<void> {

@@ -12,7 +12,9 @@ import { defineConfig } from 'vite';
  */
 export default defineConfig({
   server: {
+    host: '127.0.0.1',
     port: 3000,
+    strictPort: true,
     proxy: {
       '/api': {
         target: 'http://127.0.0.1:3333',
@@ -22,7 +24,7 @@ export default defineConfig({
     },
   },
   build: {
-    // O Fastify serve daqui em produção.
+    // O Fastify serve daqui em produção (e em dev quando dist existe).
     outDir: 'dist',
     emptyOutDir: true,
     target: 'es2022',

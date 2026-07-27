@@ -1,10 +1,8 @@
 /**
- * Provedor de modelo.
+ * Provedor de modelo (DeepSeek).
  *
- * Isolado num módulo próprio para que trocar de provedor seja mudar uma variável
- * de ambiente, não caçar chamadas espalhadas pelo código. O DeepSeek é o padrão
- * por custo e por ser competente em tool calling; a mesma interface serve
- * Anthropic e OpenAI.
+ * Isolado num módulo próprio. Outros provedores saem do escopo até haver
+ * pacote instalado e uso real — YAGNI.
  */
 
 import { createDeepSeek } from '@ai-sdk/deepseek';
@@ -19,7 +17,7 @@ export interface ModelInfo {
 }
 
 export function modelInfo(): ModelInfo {
-  return { provider: env.AI_PROVIDER, model: env.AI_MODEL, configured: hasAiKey() };
+  return { provider: 'deepseek', model: env.AI_MODEL, configured: hasAiKey() };
 }
 
 /**
@@ -32,44 +30,11 @@ export function getModel(overrideModel?: string): LanguageModel {
   if (!hasAiKey()) {
     throw new AppError(
       'VALIDATION',
-      `Nenhuma chave de API configurada para o provedor "${env.AI_PROVIDER}". ` +
-        `Preencha ${keyVariableName()} no arquivo .env.`,
-      { provider: env.AI_PROVIDER, variable: keyVariableName() },
+      'Nenhuma chave de API configurada para o DeepSeek. Preencha DEEPSEEK_API_KEY no arquivo .env.',
+      { provider: 'deepseek', variable: 'DEEPSEEK_API_KEY' },
     );
   }
 
-  const model = overrideModel ?? env.AI_MODEL;
-
-  switch (env.AI_PROVIDER) {
-    case 'deepseek': {
-      const deepseek = createDeepSeek({ apiKey: aiApiKey() });
-      return deepseek(model);
-    }
-    // Anthropic e OpenAI usam a mesma interface do AI SDK; o pacote do provedor
-    // é carregado sob demanda para não obrigar a instalar o que não se usa.
-    case 'anthropic':
-    case 'openai':
-      throw new AppError(
-        'VALIDATION',
-        `O provedor "${env.AI_PROVIDER}" está previsto mas o pacote correspondente não está instalado. ` +
-          `Rode: npm install @ai-sdk/${env.AI_PROVIDER}`,
-        { provider: env.AI_PROVIDER },
-      );
-  }
+  const deepseek = createDeepSeek({ apiKey: aiApiKey() });
+  return deepseek(overrideModel ?? env.AI_MODEL);
 }
-
-function keyVariableName(): string {
-  return {
-    deepseek: 'DEEPSEEK_API_KEY',
-    anthropic: 'ANTHROPIC_API_KEY',
-    openai: 'OPENAI_API_KEY',
-  }[env.AI_PROVIDER];
-}
-
-/** Modelos conhecidos do DeepSeek, para referência na configuração. */
-export const DEEPSEEK_MODELS = {
-  /** Rápido e barato. Padrão para chat e lançamentos. */
-  chat: 'deepseek-chat',
-  /** Raciocínio mais longo. Útil para análise de insights. */
-  reasoner: 'deepseek-reasoner',
-} as const;

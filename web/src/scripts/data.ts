@@ -92,6 +92,8 @@ export interface Account {
   color: string;
   icon: string;
   aliases: string[];
+  hasDebitCard: boolean;
+  debitIsVirtual: boolean;
   isArchived: boolean;
   sortOrder: number;
 }
@@ -102,6 +104,7 @@ export interface CreditCard {
   closingDay: number;
   dueDay: number;
   paymentAccountId: string;
+  isVirtual: boolean;
 }
 
 /** Transação com os campos derivados que a interface exibe. */
@@ -221,6 +224,8 @@ function adaptAccount(account: ApiAccount): Account {
     color: account.color ?? '#566C86',
     icon: account.icon ?? iconForKind(account.kind),
     aliases: account.aliases ?? [],
+    hasDebitCard: account.hasDebitCard,
+    debitIsVirtual: account.debitIsVirtual,
     isArchived: account.isArchived,
     sortOrder: account.sortOrder,
   };
@@ -426,6 +431,7 @@ export async function loadAll(): Promise<LoadReport> {
           closingDay: a.card.closingDay,
           dueDay: a.card.dueDay,
           paymentAccountId: a.card.paymentAccountId ?? '',
+          isVirtual: a.card.isVirtual,
         }));
     }),
     settle('saldos', api.balances(), (rows) => {

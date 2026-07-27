@@ -1741,6 +1741,33 @@ body.ai-dock-open .right-ai-sidebar {
   gap: 12px;
 }
 
+.accounts-split {
+  display: grid;
+  grid-template-columns: 1fr minmax(240px, 320px);
+  gap: 12px;
+  align-items: start;
+}
+
+.account-card-btn {
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  border: 2px solid var(--c-border-strong, var(--c-slate));
+  background: var(--c-surface-well, var(--c-void-black));
+  color: inherit;
+  font: inherit;
+  padding: 8px;
+}
+
+.account-card-btn.selected {
+  border-color: var(--c-pale-cyan);
+  outline: 2px solid var(--c-focus-ring, var(--c-amber));
+}
+
+@media (max-width: 800px) {
+  .accounts-split { grid-template-columns: 1fr; }
+}
+
 .split-list-sidebar {
   display: grid;
   grid-template-columns: 1fr 280px;

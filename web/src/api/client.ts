@@ -206,6 +206,7 @@ export interface CreditCard {
   closingDay: number;
   dueDay: number;
   paymentAccountId: string | null;
+  isVirtual: boolean;
   notes: string | null;
 }
 
@@ -221,6 +222,8 @@ export interface Account {
   icon: string | null;
   notes: string | null;
   aliases: string[] | null;
+  hasDebitCard: boolean;
+  debitIsVirtual: boolean;
   isArchived: boolean;
   sortOrder: number;
   createdAt: string;
@@ -742,7 +745,13 @@ export const api = {
       { query: { months } },
     ),
   createAccount: (body: unknown) => request<WriteResult<Account>>('/accounts', { method: 'POST', body }),
+  updateAccount: (id: string, body: unknown) =>
+    request<WriteResult<Account>>(`/accounts/${id}`, { method: 'PATCH', body }),
   archiveAccount: (id: string) => request<WriteResult<Account>>(`/accounts/${id}/archive`, { method: 'POST', body: {} }),
+  unarchiveAccount: (id: string) =>
+    request<WriteResult<Account>>(`/accounts/${id}/unarchive`, { method: 'POST', body: {} }),
+  deleteAccount: (id: string) =>
+    request<WriteResult<{ deleted: string }>>(`/accounts/${id}`, { method: 'DELETE' }),
 
   // Categorias, favorecidos, tags
   categories: (kind?: CategoryKind) => request<Category[]>('/categories', { query: { kind } }),

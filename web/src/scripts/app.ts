@@ -27,6 +27,29 @@ function escapeHtml(value: string): string {
     .replace(/'/g, '&#39;');
 }
 
+const AI_CONFIRM_RE = /^(sim+|s+|ok+|confirmo|confirma|confirmado|pode( executar)?|aprova(r)?|aprovado)\b/i;
+
+const CASHLIKE_KINDS = new Set(['checking', 'savings', 'cash', 'wallet', 'investment']);
+
+const ACCOUNT_KIND_LABELS: Record<string, string> = {
+  checking: 'CORRENTE',
+  savings: 'POUPANÇA',
+  cash: 'DINHEIRO',
+  wallet: 'CARTEIRA',
+  investment: 'INVESTIMENTO',
+  credit_card: 'CRÉDITO',
+};
+
+function accountKindLabel(kind: string): string {
+  return ACCOUNT_KIND_LABELS[kind] ?? kind.toUpperCase();
+}
+
+function parseReaisToCents(raw: string): number {
+  const n = parseFloat(raw.replace(',', '.').trim());
+  if (!Number.isFinite(n)) return 0;
+  return Math.round(n * 100);
+}
+
 
 /**
  * Markdown mínimo para as respostas da IA.
@@ -72,6 +95,12 @@ export class KakeiboApp {
   private currentFilterKey: string = 'all';
   private resizeTimer: number | null = null;
   private aiRiskReject: (() => void) | null = null;
+  private aiRiskDismiss: (() => void) | null = null;
+  private accountsFilter: 'all' | 'cashlike' | 'credit' | 'debit' = 'all';
+  private selectedAccountId: string | null = null;
+  private accountFormMode: 'create' | 'edit' = 'create';
+  private editingAccountId: string | null = null;
+  private pendingAiConfirm: { tokens: string[]; originalMessage: string; meta: HTMLElement } | null = null;
 
   // USER PROFILE STATE & AVATAR RENDERERS
   private userName: string = 'Allan';
@@ -405,69 +434,113 @@ export class KakeiboApp {
     if (!grid) return;
     grid.innerHTML = '';
 
-    if (ACCOUNTS.length === 0) {
+    const filtered = ACCOUNTS.filter((acc) => {
+      if (this.accountsFilter === 'all') return true;
+      if (this.accountsFilter === 'cashlike') return CASHLIKE_KINDS.has(acc.kind);
+      if (this.accountsFilter === 'credit') return acc.kind === 'credit_card';
+      if (this.accountsFilter === 'debit') return acc.hasDebitCard && acc.kind !== 'credit_card';
+      return true;
+    });
+
+    if (filtered.length === 0) {
       grid.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA CONTA — USE [+ NOVA CONTA]</div>`;
     }
 
-    ACCOUNTS.forEach(acc => {
+    if (this.selectedAccountId && !ACCOUNTS.some((a) => a.id === this.selectedAccountId)) {
+      this.selectedAccountId = null;
+    }
+
+    filtered.forEach((acc) => {
       const isCredit = acc.kind === 'credit_card';
       const balance = computeBalance(acc.id);
-      const card = document.createElement('div');
-      card.className = 'pc98-well';
-      card.style.display = 'flex';
-      card.style.flexDirection = 'column';
-      card.style.gap = '6px';
+      const creditCard = isCredit ? CREDIT_CARDS.find((c) => c.accountId === acc.id) : null;
+      const usage = isCredit ? cardUsage(acc.id) : undefined;
 
-      const creditCard = isCredit ? CREDIT_CARDS.find(c => c.accountId === acc.id) : null;
+      const badges: string[] = [
+        `<span class="micro-label" style="color: var(--c-grey-blue);">[${escapeHtml(accountKindLabel(acc.kind))}]</span>`,
+      ];
+      if (isCredit && creditCard?.isVirtual) {
+        badges.push(`<span class="micro-label txt-cyan">[VIRTUAL]</span>`);
+      }
+      if (!isCredit && acc.debitIsVirtual) {
+        badges.push(`<span class="micro-label txt-cyan">[VIRTUAL]</span>`);
+      }
+      if (acc.hasDebitCard && !isCredit) {
+        badges.push(`<span class="micro-label txt-amber">[DÉBITO]</span>`);
+      }
 
-      card.innerHTML = `
-        <div style="display: flex; justify-content: space-between; align-items: center;">
-          <span style="font-weight: bold; color: var(--c-bone-white);">${acc.name}</span>
-          <span class="micro-label" style="color: ${acc.color};">${acc.institution || acc.kind.toUpperCase()}</span>
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `account-card-btn pc98-well${this.selectedAccountId === acc.id ? ' selected' : ''}`;
+      btn.dataset.accountId = acc.id;
+      btn.innerHTML = `
+        <div style="display: flex; justify-content: space-between; align-items: center; gap: 6px; flex-wrap: wrap;">
+          <span style="font-weight: bold; color: var(--c-bone-white);">${escapeHtml(acc.name)}</span>
+          <div style="display: flex; gap: 4px; flex-wrap: wrap;">${badges.join('')}</div>
         </div>
-        <div style="display: flex; justify-content: space-between; align-items: baseline;">
+        <div style="display: flex; justify-content: space-between; align-items: baseline; margin-top: 6px;">
           <div>
             <div class="micro-label" style="color: var(--c-grey-blue);">DISPONÍVEL</div>
-            <div class="num-currency ${balance.availableCents < 0 ? 'txt-pink' : 'txt-green'}" style="font-size: 22px;">
+            <div class="num-currency ${balance.availableCents < 0 ? 'txt-pink' : 'txt-green'}" style="font-size: 20px;">
               ${formatMoney(balance.availableCents)}
             </div>
           </div>
           <div style="text-align: right;">
             <div class="micro-label" style="color: var(--c-grey-blue);">PROJETADO</div>
-            <div class="num-currency" style="font-size: 14px; color: var(--c-pale-cyan);">
+            <div class="num-currency" style="font-size: 13px; color: var(--c-pale-cyan);">
               ${formatMoney(balance.projectedCents)}
             </div>
           </div>
         </div>
-        ${isCredit && creditCard ? `
-          <div class="micro-label" style="color: var(--c-grey-blue);">
-            LIMITE: ${formatMoney(creditCard.limitCents)} | FECHA: DIA ${creditCard.closingDay} | VENCE: DIA ${creditCard.dueDay}
-          </div>
-        ` : `
-          <div class="micro-label" style="color: var(--c-grey-blue);">${acc.kind.toUpperCase()} • ${acc.currency}</div>
-        `}
+        ${
+          isCredit && creditCard
+            ? `<div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">
+                ${
+                  usage
+                    ? `USO: ${usage.usedPercent}% DE ${formatMoney(usage.limitCents)}`
+                    : `LIMITE: ${formatMoney(creditCard.limitCents)}`
+                }
+               </div>`
+            : `<div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">${escapeHtml(acc.institution || acc.currency)}</div>`
+        }
       `;
-
-      grid.appendChild(card);
+      btn.addEventListener('click', () => {
+        pc98Audio.playSelect();
+        this.selectedAccountId = acc.id;
+        this.renderAccounts();
+      });
+      grid.appendChild(btn);
     });
 
-    // Render invoices section
+    this.renderAccountDetail();
+
     const invoicesContainer = document.getElementById('invoices-container');
     if (invoicesContainer) {
       invoicesContainer.innerHTML = '';
-      if (CARD_INVOICES.length === 0) {
+      const selected = this.selectedAccountId
+        ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+        : null;
+      const invoices =
+        selected?.kind === 'credit_card'
+          ? CARD_INVOICES.filter((inv) => inv.cardAccountId === selected.id)
+          : CARD_INVOICES.filter((inv) => inv.status === 'open' || inv.status === 'overdue');
+
+      if (invoices.length === 0) {
         invoicesContainer.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 8px;">SEM FATURAS ABERTAS</div>`;
       }
-      CARD_INVOICES.forEach(inv => {
+
+      invoices.forEach((inv) => {
         const statusClass = inv.status === 'overdue' ? 'txt-pink' : inv.status === 'open' ? 'txt-amber' : 'txt-green';
         const statusText = inv.status === 'overdue' ? 'VENCIDA' : inv.status === 'open' ? 'ABERTA' : 'PAGA';
         const canPay = inv.status === 'open' || inv.status === 'overdue';
+        const cardAcc = ACCOUNTS.find((a) => a.id === inv.cardAccountId);
+        const showName = selected?.kind !== 'credit_card';
         const el = document.createElement('div');
         el.className = 'pc98-well';
         el.style.padding = '8px';
         el.innerHTML = `
           <div style="display: flex; justify-content: space-between;">
-            <span class="micro-label">FATURA ${inv.referenceMonth}</span>
+            <span class="micro-label">FATURA ${escapeHtml(inv.referenceMonth)}${showName && cardAcc ? ` · ${escapeHtml(cardAcc.name)}` : ''}</span>
             <span class="micro-label ${statusClass}">[${statusText}]</span>
           </div>
           <div class="num-currency ${statusClass}" style="font-size: var(--fs-md);">${formatMoney(inv.totalCents)}</div>
@@ -480,6 +553,287 @@ export class KakeiboApp {
         });
         invoicesContainer.appendChild(el);
       });
+    }
+  }
+
+  private renderAccountDetail() {
+    const panel = document.getElementById('account-detail-panel');
+    if (!panel) return;
+
+    const acc = this.selectedAccountId
+      ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+      : null;
+
+    if (!acc) {
+      panel.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue);">Selecione uma conta para ver detalhes, editar ou arquivar.</div>`;
+      return;
+    }
+
+    const isCredit = acc.kind === 'credit_card';
+    const balance = computeBalance(acc.id);
+    const creditCard = isCredit ? CREDIT_CARDS.find((c) => c.accountId === acc.id) : null;
+    const usage = isCredit ? cardUsage(acc.id) : undefined;
+    const paymentName =
+      creditCard?.paymentAccountId
+        ? ACCOUNTS.find((a) => a.id === creditCard.paymentAccountId)?.name
+        : null;
+
+    let specifics = '';
+    if (isCredit && creditCard) {
+      specifics = `
+        <div class="micro-label" style="color: var(--c-grey-blue);">LIMITE: ${formatMoney(creditCard.limitCents)}</div>
+        <div class="micro-label" style="color: var(--c-grey-blue);">FECHA DIA ${creditCard.closingDay} · VENCE DIA ${creditCard.dueDay}</div>
+        ${usage ? `<div class="micro-label" style="color: var(--c-amber);">USO: ${usage.usedPercent}% (${formatMoney(usage.usedCents)})</div>` : ''}
+        ${creditCard.isVirtual ? `<div class="micro-label txt-cyan">[VIRTUAL]</div>` : ''}
+        ${paymentName ? `<div class="micro-label" style="color: var(--c-grey-blue);">PAGA COM: ${escapeHtml(paymentName)}</div>` : ''}
+      `;
+    } else {
+      const debitBits: string[] = [];
+      if (acc.hasDebitCard) debitBits.push('[DÉBITO]');
+      if (acc.debitIsVirtual) debitBits.push('[VIRTUAL]');
+      specifics = `
+        <div class="micro-label" style="color: var(--c-grey-blue);">SALDO ABERTURA: ${formatMoney(acc.openingBalanceCents)}</div>
+        ${debitBits.length ? `<div class="micro-label txt-amber">${debitBits.join(' ')}</div>` : ''}
+      `;
+    }
+
+    panel.innerHTML = `
+      <div style="display: flex; flex-direction: column; gap: 8px;">
+        <div style="font-weight: bold; color: var(--c-bone-white); font-size: 15px;">${escapeHtml(acc.name)}</div>
+        <div class="micro-label" style="color: var(--c-pale-cyan);">[${escapeHtml(accountKindLabel(acc.kind))}]</div>
+        ${acc.institution ? `<div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(acc.institution)}</div>` : ''}
+        <div>
+          <div class="micro-label" style="color: var(--c-grey-blue);">DISPONÍVEL</div>
+          <div class="num-currency ${balance.availableCents < 0 ? 'txt-pink' : 'txt-green'}" style="font-size: 18px;">${formatMoney(balance.availableCents)}</div>
+        </div>
+        <div>
+          <div class="micro-label" style="color: var(--c-grey-blue);">PROJETADO</div>
+          <div class="num-currency" style="font-size: 14px; color: var(--c-pale-cyan);">${formatMoney(balance.projectedCents)}</div>
+        </div>
+        ${specifics}
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-top: 4px;">
+          <button type="button" id="btn-edit-account" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[EDITAR]</button>
+          <button type="button" id="btn-archive-account" class="pc98-btn btn-alert" style="padding: 4px 10px; font-size: 11px;">[ARQUIVAR]</button>
+          ${isCredit ? `<button type="button" id="btn-scroll-invoices" class="pc98-btn" style="padding: 4px 10px; font-size: 11px;">[VER FATURAS]</button>` : ''}
+        </div>
+      </div>
+    `;
+
+    document.getElementById('btn-edit-account')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.openAccountForm('edit', acc);
+    });
+    document.getElementById('btn-archive-account')?.addEventListener('click', () => {
+      void this.archiveSelectedAccount();
+    });
+    document.getElementById('btn-scroll-invoices')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      document.getElementById('invoices-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    });
+  }
+
+  private syncAccountFormSections() {
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    const debitSection = document.getElementById('account-debit-section');
+    const creditSection = document.getElementById('account-credit-section');
+    const openingGroup = document.getElementById('account-opening-balance-group');
+    if (!kindSelect) return;
+    const isCredit = kindSelect.value === 'credit_card';
+    if (debitSection) debitSection.style.display = isCredit ? 'none' : 'flex';
+    if (creditSection) {
+      creditSection.style.display = isCredit ? 'flex' : 'none';
+      creditSection.classList.toggle('hidden', !isCredit);
+    }
+    if (openingGroup) openingGroup.style.display = isCredit ? 'none' : 'flex';
+  }
+
+  private populatePaymentAccountSelect(excludeId?: string) {
+    const select = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
+    if (!select) return;
+    const previous = select.value;
+    select.innerHTML = '<option value="">— nenhuma —</option>';
+    for (const acc of ACCOUNTS.filter((a) => a.kind !== 'credit_card' && !a.isArchived && a.id !== excludeId)) {
+      const opt = document.createElement('option');
+      opt.value = acc.id;
+      opt.textContent = acc.name;
+      select.appendChild(opt);
+    }
+    if (previous && [...select.options].some((o) => o.value === previous)) {
+      select.value = previous;
+    }
+  }
+
+  private openAccountForm(mode: 'create' | 'edit', account?: Account) {
+    pc98Audio.playSelect();
+    this.accountFormMode = mode;
+    this.editingAccountId = mode === 'edit' && account ? account.id : null;
+
+    const modal = document.getElementById('modal-account-form');
+    const title = document.getElementById('account-form-title');
+    const nameInput = document.getElementById('account-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    const institutionInput = document.getElementById('account-input-institution') as HTMLInputElement | null;
+    const openingInput = document.getElementById('account-input-opening-balance') as HTMLInputElement | null;
+    const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
+    const debitVirtual = document.getElementById('account-input-debit-virtual') as HTMLInputElement | null;
+    const limitInput = document.getElementById('account-input-limit') as HTMLInputElement | null;
+    const closingInput = document.getElementById('account-input-closing-day') as HTMLInputElement | null;
+    const dueInput = document.getElementById('account-input-due-day') as HTMLInputElement | null;
+    const isVirtual = document.getElementById('account-input-is-virtual') as HTMLInputElement | null;
+    const paymentSelect = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
+
+    if (title) title.textContent = mode === 'create' ? 'NOVA CONTA' : 'EDITAR CONTA';
+    this.populatePaymentAccountSelect(account?.id);
+
+    if (mode === 'edit' && account) {
+      if (nameInput) nameInput.value = account.name;
+      if (kindSelect) {
+        kindSelect.value = account.kind;
+        kindSelect.disabled = true;
+      }
+      if (institutionInput) institutionInput.value = account.institution;
+      if (openingInput) openingInput.value = (account.openingBalanceCents / 100).toFixed(2);
+      if (hasDebit) hasDebit.checked = account.hasDebitCard;
+      if (debitVirtual) debitVirtual.checked = account.debitIsVirtual;
+      const card = CREDIT_CARDS.find((c) => c.accountId === account.id);
+      if (card) {
+        if (limitInput) limitInput.value = (card.limitCents / 100).toFixed(2);
+        if (closingInput) closingInput.value = String(card.closingDay);
+        if (dueInput) dueInput.value = String(card.dueDay);
+        if (isVirtual) isVirtual.checked = card.isVirtual;
+        if (paymentSelect) paymentSelect.value = card.paymentAccountId || '';
+      }
+    } else {
+      if (nameInput) nameInput.value = '';
+      if (kindSelect) {
+        kindSelect.value = 'checking';
+        kindSelect.disabled = false;
+      }
+      if (institutionInput) institutionInput.value = '';
+      if (openingInput) openingInput.value = '0';
+      if (hasDebit) hasDebit.checked = false;
+      if (debitVirtual) debitVirtual.checked = false;
+      if (limitInput) limitInput.value = '0';
+      if (closingInput) closingInput.value = '1';
+      if (dueInput) dueInput.value = '10';
+      if (isVirtual) isVirtual.checked = false;
+      if (paymentSelect) paymentSelect.value = '';
+    }
+
+    this.syncAccountFormSections();
+    modal?.classList.remove('hidden');
+    nameInput?.focus();
+  }
+
+  private closeAccountForm() {
+    document.getElementById('modal-account-form')?.classList.add('hidden');
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    if (kindSelect) kindSelect.disabled = false;
+    this.editingAccountId = null;
+  }
+
+  private async submitAccountForm() {
+    const nameInput = document.getElementById('account-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('account-input-kind') as HTMLSelectElement | null;
+    const institutionInput = document.getElementById('account-input-institution') as HTMLInputElement | null;
+    const openingInput = document.getElementById('account-input-opening-balance') as HTMLInputElement | null;
+    const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
+    const debitVirtual = document.getElementById('account-input-debit-virtual') as HTMLInputElement | null;
+    const limitInput = document.getElementById('account-input-limit') as HTMLInputElement | null;
+    const closingInput = document.getElementById('account-input-closing-day') as HTMLInputElement | null;
+    const dueInput = document.getElementById('account-input-due-day') as HTMLInputElement | null;
+    const isVirtual = document.getElementById('account-input-is-virtual') as HTMLInputElement | null;
+    const paymentSelect = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
+
+    const name = nameInput?.value.trim() ?? '';
+    if (!name) {
+      this.notify('Informe o nome da conta.', 'warn');
+      return;
+    }
+
+    const kind = (kindSelect?.value ?? 'checking') as Account['kind'];
+    const institution = institutionInput?.value.trim() || undefined;
+    const isCredit = kind === 'credit_card';
+
+    try {
+      if (this.accountFormMode === 'create') {
+        const body: Record<string, unknown> = {
+          name,
+          kind,
+          currency: 'BRL',
+          ...(institution ? { institution } : {}),
+        };
+        if (isCredit) {
+          const closingDay = Number(closingInput?.value || 1);
+          const dueDay = Number(dueInput?.value || 10);
+          body.card = {
+            limitCents: parseReaisToCents(limitInput?.value || '0'),
+            closingDay,
+            dueDay,
+            isVirtual: isVirtual?.checked ?? false,
+            ...(paymentSelect?.value ? { paymentAccountId: paymentSelect.value } : {}),
+          };
+        } else {
+          body.openingBalanceCents = parseReaisToCents(openingInput?.value || '0');
+          body.hasDebitCard = hasDebit?.checked ?? false;
+          body.debitIsVirtual = (hasDebit?.checked && debitVirtual?.checked) ?? false;
+        }
+        const result = await api.createAccount(body);
+        this.closeAccountForm();
+        this.selectedAccountId = result.data.id;
+        await this.reloadAfterWrite('Conta criada.', result.changeSetId);
+      } else if (this.editingAccountId) {
+        const body: Record<string, unknown> = {
+          name,
+          ...(institution !== undefined ? { institution: institution || null } : {}),
+        };
+        if (isCredit) {
+          body.card = {
+            limitCents: parseReaisToCents(limitInput?.value || '0'),
+            closingDay: Number(closingInput?.value || 1),
+            dueDay: Number(dueInput?.value || 10),
+            isVirtual: isVirtual?.checked ?? false,
+            paymentAccountId: paymentSelect?.value || null,
+          };
+        } else {
+          body.openingBalanceCents = parseReaisToCents(openingInput?.value || '0');
+          body.hasDebitCard = hasDebit?.checked ?? false;
+          body.debitIsVirtual = (hasDebit?.checked && debitVirtual?.checked) ?? false;
+        }
+        const result = await api.updateAccount(this.editingAccountId, body);
+        this.closeAccountForm();
+        await this.reloadAfterWrite('Conta atualizada.', result.changeSetId);
+      }
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao salvar conta: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async archiveSelectedAccount() {
+    if (!this.selectedAccountId) return;
+    const acc = ACCOUNTS.find((a) => a.id === this.selectedAccountId);
+    if (!acc) return;
+    pc98Audio.playSelect();
+    const ok = await this.openSystemDialog({
+      title: '✦ ARQUIVAR CONTA ✦',
+      body: `Arquivar <strong>${escapeHtml(acc.name)}</strong>?`,
+      confirmLabel: '[ARQUIVAR]',
+      cancelLabel: '[CANCELAR]',
+      danger: true,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.archiveAccount(acc.id);
+      this.selectedAccountId = null;
+      await this.reloadAfterWrite('Conta arquivada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao arquivar: ${String(error)}`,
+        'error',
+      );
     }
   }
 
@@ -1210,7 +1564,7 @@ export class KakeiboApp {
     const modal = document.getElementById('modal-ai-risk-confirm');
     const diffEl = document.getElementById('ai-risk-diff-text');
     const approveBtn = document.getElementById('btn-confirm-risk') as HTMLButtonElement | null;
-    const rejectBtn = document.getElementById('btn-reject-risk');
+    const rejectBtn = document.getElementById('btn-reject-risk') as HTMLButtonElement | null;
     const closeBtn = document.getElementById('btn-close-risk');
     if (!modal || !diffEl) return;
     diffEl.innerHTML = diffText;
@@ -1220,17 +1574,21 @@ export class KakeiboApp {
       modal.classList.add('hidden');
       document.removeEventListener('keydown', onKey);
       this.aiRiskReject = null;
+      this.aiRiskDismiss = null;
       if (rejected) onReject?.();
     };
     const onKey = (ev: KeyboardEvent) => {
       if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cleanup(true); }
     };
     this.aiRiskReject = () => cleanup(true);
+    this.aiRiskDismiss = () => cleanup(false);
     if (approveBtn) {
       approveBtn.onclick = () => { pc98Audio.playSelect(); cleanup(false); onApprove(); };
-      approveBtn.focus();
     }
-    if (rejectBtn) rejectBtn.onclick = () => cleanup(true);
+    if (rejectBtn) {
+      rejectBtn.onclick = () => cleanup(true);
+      rejectBtn.focus();
+    }
     if (closeBtn) closeBtn.onclick = () => cleanup(true);
     document.addEventListener('keydown', onKey);
   }
@@ -1454,7 +1812,11 @@ export class KakeiboApp {
    * e **não foram executadas**: a interface abre o modal de confirmação e só então
    * reenvia com o token de aprovação.
    */
-  private async sendChatMessage(query: string, approvedTokens: string[] = []) {
+  private async sendChatMessage(
+    query: string,
+    approvedTokens: string[] = [],
+    options: { silentUser?: boolean } = {},
+  ) {
     const text = query.trim();
     if (!text || this.isTyping) return;
 
@@ -1463,20 +1825,22 @@ export class KakeiboApp {
 
     // Bolha do usuário. `textContent` em vez de innerHTML: a mensagem é texto do
     // usuário e não deve ser interpretada como HTML.
-    const userBubble = document.createElement('div');
-    userBubble.className = 'chat-bubble-row user-side';
-    const userInner = document.createElement('div');
-    userInner.className = 'chat-bubble user-bubble';
-    const userHeader = document.createElement('div');
-    userHeader.className = 'micro-label';
-    userHeader.style.cssText = 'color: var(--c-sky); margin-bottom: 4px;';
-    userHeader.textContent = this.userName;
-    const userBody = document.createElement('div');
-    userBody.textContent = text;
-    userInner.append(userHeader, userBody);
-    userBubble.appendChild(userInner);
-    streamBox.appendChild(userBubble);
-    streamBox.scrollTop = streamBox.scrollHeight;
+    if (!options.silentUser) {
+      const userBubble = document.createElement('div');
+      userBubble.className = 'chat-bubble-row user-side';
+      const userInner = document.createElement('div');
+      userInner.className = 'chat-bubble user-bubble';
+      const userHeader = document.createElement('div');
+      userHeader.className = 'micro-label';
+      userHeader.style.cssText = 'color: var(--c-sky); margin-bottom: 4px;';
+      userHeader.textContent = this.userName;
+      const userBody = document.createElement('div');
+      userBody.textContent = text;
+      userInner.append(userHeader, userBody);
+      userBubble.appendChild(userInner);
+      streamBox.appendChild(userBubble);
+      streamBox.scrollTop = streamBox.scrollHeight;
+    }
 
     // Bolha da IA, preenchida conforme o stream chega.
     const aiBubble = document.createElement('div');
@@ -1571,6 +1935,7 @@ export class KakeiboApp {
 
     // Nada foi escrito nestas: pede aprovação e reenvia com o token.
     const pending = result.pendingConfirmations;
+    const tokens = pending.map((p) => p.token);
     const listHtml = pending
       .map(
         (p) =>
@@ -1581,18 +1946,45 @@ export class KakeiboApp {
       )
       .join('');
 
-    meta.innerHTML = `<span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO]</span>`;
+    this.pendingAiConfirm = { tokens, originalMessage, meta };
 
-    this.triggerAiRiskConfirmation(listHtml, () => {
-      void this.sendChatMessage(
-        'Confirmado, pode executar.',
-        pending.map((p) => p.token),
-      );
-    }, () => {
+    meta.innerHTML = `
+      <span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO]</span>
+      <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
+        <button type="button" class="pc98-btn btn-ai-reject-inline" style="padding: 2px 8px; font-size: 11px;">[REJEITAR]</button>
+        <button type="button" class="pc98-btn btn-alert btn-ai-approve-inline" style="padding: 2px 8px; font-size: 11px;">[APROVAR]</button>
+      </div>
+    `;
+
+    const approveInline = () => {
+      const pendingConfirm = this.pendingAiConfirm;
+      this.pendingAiConfirm = null;
+      if (!pendingConfirm) return;
+      void this.sendChatMessage(pendingConfirm.originalMessage, pendingConfirm.tokens, { silentUser: true });
+    };
+    const rejectInline = () => {
+      this.pendingAiConfirm = null;
+      this.aiRiskReject?.();
       meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+    };
+
+    meta.querySelector('.btn-ai-approve-inline')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.aiRiskDismiss?.();
+      approveInline();
+    });
+    meta.querySelector('.btn-ai-reject-inline')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      rejectInline();
     });
 
-    void originalMessage;
+    this.triggerAiRiskConfirmation(listHtml, () => {
+      this.pendingAiConfirm = null;
+      void this.sendChatMessage(originalMessage, tokens, { silentUser: true });
+    }, () => {
+      this.pendingAiConfirm = null;
+      meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+    });
   }
 
   /** Recarrega o store e redesenha, avisando com opção de desfazer. */
@@ -1944,8 +2336,39 @@ export class KakeiboApp {
     });
 
     document.getElementById('btn-new-account')?.addEventListener('click', () => {
-      void this.promptCreateAccount();
+      this.openAccountForm('create');
     });
+
+    document.getElementById('accounts-filter-strip')?.addEventListener('click', (e) => {
+      const target = (e.target as HTMLElement).closest('[data-accounts-filter]') as HTMLElement | null;
+      if (!target) return;
+      pc98Audio.playSelect();
+      const filter = (target.dataset.accountsFilter || 'all') as typeof this.accountsFilter;
+      this.accountsFilter = filter;
+      document.querySelectorAll('#accounts-filter-strip .filter-btn').forEach((b) => {
+        b.classList.remove('active', 'btn-primary');
+      });
+      target.classList.add('active', 'btn-primary');
+      this.renderAccounts();
+    });
+
+    document.getElementById('account-input-kind')?.addEventListener('change', () => {
+      this.syncAccountFormSections();
+    });
+    document.getElementById('btn-close-account-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeAccountForm();
+    });
+    document.getElementById('btn-cancel-account-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeAccountForm();
+    });
+    document.getElementById('form-account')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      void this.submitAccountForm();
+    });
+
     document.getElementById('btn-new-goal')?.addEventListener('click', () => {
       void this.promptCreateGoal();
     });
@@ -2181,6 +2604,24 @@ export class KakeiboApp {
       const textInput = document.getElementById('chat-input-text') as HTMLInputElement;
       const query = textInput.value.trim();
       if (!query) return;
+
+      if (this.pendingAiConfirm && AI_CONFIRM_RE.test(query)) {
+        const pending = this.pendingAiConfirm;
+        this.pendingAiConfirm = null;
+        this.aiRiskDismiss?.();
+        textInput.value = '';
+        const streamBox = document.getElementById('chat-stream-box');
+        if (streamBox) {
+          const note = document.createElement('div');
+          note.className = 'chat-bubble-row ai-side';
+          note.innerHTML = `<div class="chat-bubble ai-bubble"><div class="micro-label txt-green">Confirmação recebida.</div></div>`;
+          streamBox.appendChild(note);
+          streamBox.scrollTop = streamBox.scrollHeight;
+        }
+        void this.sendChatMessage(pending.originalMessage, pending.tokens, { silentUser: true });
+        return;
+      }
+
       if (!this.commitNaturalLanguageEntry(query)) {
         this.sendChatMessage(query);
       }
@@ -2253,26 +2694,7 @@ export class KakeiboApp {
   }
 
   private async promptCreateAccount() {
-    pc98Audio.playSelect();
-    const name = await this.openSystemDialog({
-      title: '✦ NOVA CONTA ✦',
-      body: 'Nome da conta:',
-      confirmLabel: '[CRIAR]',
-      cancelLabel: '[CANCELAR]',
-      showInput: true,
-      promptDefault: '',
-      danger: false,
-    });
-    if (typeof name !== 'string' || !name.trim()) return;
-    try {
-      const result = await api.createAccount({ name: name.trim(), kind: 'checking', currency: 'BRL' });
-      await this.reloadAfterWrite('Conta criada.', result.changeSetId);
-    } catch (error) {
-      this.notify(
-        error instanceof ApiError ? error.message : `Falha ao criar conta: ${String(error)}`,
-        'error',
-      );
-    }
+    this.openAccountForm('create');
   }
 
   private async promptCreateGoal() {

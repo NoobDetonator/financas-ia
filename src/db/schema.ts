@@ -105,6 +105,10 @@ export const accounts = sqliteTable(
     notes: text(),
     /** Apelidos usados pela IA para reconhecer a conta ("nubank", "conta do bradesco"). */
     aliases: text({ mode: 'json' }).$type<string[]>(),
+    /** Conta corrente/poupança/carteira com cartão de débito vinculado. */
+    hasDebitCard: integer('has_debit_card', { mode: 'boolean' }).notNull().default(false),
+    /** Débito virtual (sem plástico). Só faz sentido com hasDebitCard. */
+    debitIsVirtual: integer('debit_is_virtual', { mode: 'boolean' }).notNull().default(false),
     isArchived: integer({ mode: 'boolean' }).notNull().default(false),
     sortOrder: integer().notNull().default(0),
     createdAt: createdAt(),
@@ -125,6 +129,8 @@ export const creditCards = sqliteTable('credit_cards', {
   dueDay: integer().notNull(),
   /** Conta usada por padrão para pagar a fatura. */
   paymentAccountId: text().references(() => accounts.id, { onDelete: 'set null' }),
+  /** Cartão virtual (sem plástico físico). */
+  isVirtual: integer('is_virtual', { mode: 'boolean' }).notNull().default(false),
   notes: text(),
   createdAt: createdAt(),
   updatedAt: updatedAt(),

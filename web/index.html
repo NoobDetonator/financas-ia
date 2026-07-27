@@ -347,12 +347,21 @@
               <div class="window-title-bar">
                 <div class="title-label"><span>CONTAS E CARTÕES</span></div>
               </div>
-              <div class="window-content" style="overflow-y: auto; gap: 12px;">
-                <div style="display: flex; justify-content: flex-end;">
+              <div class="window-content accounts-workspace" style="overflow-y: auto; gap: 12px;">
+                <div class="accounts-toolbar" style="display:flex; flex-wrap:wrap; gap:8px; align-items:center; justify-content:space-between;">
+                  <div id="accounts-filter-strip" style="display:flex; gap:6px; flex-wrap:wrap;" role="tablist" aria-label="Filtro de contas">
+                    <button type="button" class="pc98-btn active btn-primary filter-btn" data-accounts-filter="all">[TODAS]</button>
+                    <button type="button" class="pc98-btn filter-btn" data-accounts-filter="cashlike">[CONTAS]</button>
+                    <button type="button" class="pc98-btn filter-btn" data-accounts-filter="credit">[CRÉDITO]</button>
+                    <button type="button" class="pc98-btn filter-btn" data-accounts-filter="debit">[DÉBITO]</button>
+                  </div>
                   <button type="button" id="btn-new-account" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA CONTA]</button>
                 </div>
-                <div id="accounts-cards-grid" class="accounts-cards-grid">
-                  <!-- Cards rendered dynamically -->
+                <div class="accounts-split">
+                  <div id="accounts-cards-grid" class="accounts-cards-grid"></div>
+                  <aside id="account-detail-panel" class="pc98-well account-detail-panel" aria-live="polite">
+                    <div class="micro-label" style="color: var(--c-grey-blue);">Selecione uma conta para ver detalhes, editar ou arquivar.</div>
+                  </aside>
                 </div>
                 <div id="invoices-container" class="invoices-stack" style="display: flex; flex-direction: column; gap: 10px;"></div>
               </div>
@@ -889,7 +898,7 @@
   <div id="modal-ai-risk-confirm" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="ai-risk-title">
     <div class="pc98-window pink-frame" style="width: 500px; max-width: 90%;">
       <div class="window-title-bar">
-        <div class="title-label"><span id="ai-risk-title">AI ACTION CONFIRMATION</span></div>
+        <div class="title-label"><span id="ai-risk-title">CONFIRMAÇÃO DE AÇÃO DA IA</span></div>
         <div class="window-controls"><button type="button" id="btn-close-risk" class="win-btn" aria-label="Fechar">x</button></div>
       </div>
       <div class="window-content" style="gap: 12px;">
@@ -898,9 +907,10 @@
           OPERAÇÃO DE ALTO RISCO DETECTADA
         </div>
         <div id="ai-risk-diff-text" style="font-size: 14px; color: var(--c-bone-white);" class="pc98-well"></div>
+        <div class="micro-label" style="color: var(--c-grey-blue);">Digite "confirmo" no chat ou use os botões.</div>
         <div style="display: flex; gap: 8px; justify-content: flex-end;">
           <button id="btn-reject-risk" class="pc98-btn">[REJEITAR]</button>
-          <button id="btn-confirm-risk" class="pc98-btn btn-alert">[APROVAR E APLICAR]</button>
+          <button id="btn-confirm-risk" class="pc98-btn btn-alert">[APROVAR]</button>
         </div>
       </div>
     </div>
@@ -924,6 +934,88 @@
           </div>
         </div>
         <button id="btn-close-help-confirm" class="pc98-btn btn-gold">[ENTENDI]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ACCOUNT CREATE / EDIT FORM -->
+  <div id="modal-account-form" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="account-form-title">
+    <div class="pc98-window accent-header" style="width: 520px; max-width: 95%;">
+      <div class="window-title-bar">
+        <div class="title-label"><span id="account-form-title">NOVA CONTA</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-account-form" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <form id="form-account" style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="pc98-form-group">
+            <label class="micro-label" for="account-input-name">NOME</label>
+            <input type="text" id="account-input-name" name="name" class="pc98-input" required maxlength="80" autocomplete="off" />
+          </div>
+          <div class="pc98-form-group">
+            <label class="micro-label" for="account-input-kind">TIPO</label>
+            <select id="account-input-kind" name="kind" class="pc98-input" required>
+              <option value="checking">Conta corrente</option>
+              <option value="savings">Poupança</option>
+              <option value="cash">Dinheiro</option>
+              <option value="wallet">Carteira / digital</option>
+              <option value="investment">Investimento</option>
+              <option value="credit_card">Cartão de crédito</option>
+            </select>
+          </div>
+          <div class="pc98-form-group">
+            <label class="micro-label" for="account-input-institution">INSTITUIÇÃO</label>
+            <input type="text" id="account-input-institution" name="institution" class="pc98-input" maxlength="80" autocomplete="off" />
+          </div>
+          <div class="pc98-form-group" id="account-opening-balance-group">
+            <label class="micro-label" for="account-input-opening-balance">SALDO INICIAL (R$)</label>
+            <input type="number" step="0.01" id="account-input-opening-balance" name="openingBalance" class="pc98-input" value="0" />
+          </div>
+
+          <div id="account-debit-section" class="pc98-well" style="display: flex; flex-direction: column; gap: 8px;">
+            <div class="micro-label" style="color: var(--c-pale-cyan);">CARTÃO DE DÉBITO</div>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--c-bone-white);">
+              <input type="checkbox" id="account-input-has-debit" name="hasDebitCard" />
+              Tem cartão de débito
+            </label>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--c-bone-white);">
+              <input type="checkbox" id="account-input-debit-virtual" name="debitIsVirtual" />
+              Débito virtual (sem plástico)
+            </label>
+          </div>
+
+          <div id="account-credit-section" class="pc98-well hidden" style="display: none; flex-direction: column; gap: 8px;">
+            <div class="micro-label" style="color: var(--c-amber);">CARTÃO DE CRÉDITO</div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="account-input-limit">LIMITE (R$)</label>
+              <input type="number" step="0.01" min="0" id="account-input-limit" name="limit" class="pc98-input" value="0" />
+            </div>
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+              <div class="pc98-form-group">
+                <label class="micro-label" for="account-input-closing-day">FECHAMENTO (DIA)</label>
+                <input type="number" min="1" max="31" id="account-input-closing-day" name="closingDay" class="pc98-input" value="1" />
+              </div>
+              <div class="pc98-form-group">
+                <label class="micro-label" for="account-input-due-day">VENCIMENTO (DIA)</label>
+                <input type="number" min="1" max="31" id="account-input-due-day" name="dueDay" class="pc98-input" value="10" />
+              </div>
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="account-input-payment-account">CONTA DE PAGAMENTO</label>
+              <select id="account-input-payment-account" name="paymentAccountId" class="pc98-input">
+                <option value="">— nenhuma —</option>
+              </select>
+            </div>
+            <label style="display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--c-bone-white);">
+              <input type="checkbox" id="account-input-is-virtual" name="isVirtual" />
+              Cartão virtual
+            </label>
+          </div>
+
+          <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+            <button type="button" id="btn-cancel-account-form" class="pc98-btn">[CANCELAR]</button>
+            <button type="submit" id="btn-save-account-form" class="pc98-btn btn-primary">[SALVAR]</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

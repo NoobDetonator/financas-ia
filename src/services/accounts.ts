@@ -32,6 +32,9 @@ export const createAccountSchema = z.object({
   notes: z.string().max(1000).optional(),
   /** Apelidos que a IA reconhece: `["nubank", "nu"]`. */
   aliases: z.array(z.string().min(1).max(40)).max(10).optional(),
+  /** Cartão de débito vinculado (somente contas não-crédito). */
+  hasDebitCard: z.boolean().default(false),
+  debitIsVirtual: z.boolean().default(false),
   /** Obrigatório quando `kind` é `credit_card`. */
   card: z
     .object({
@@ -39,6 +42,7 @@ export const createAccountSchema = z.object({
       closingDay: dayOfMonthSchema,
       dueDay: dayOfMonthSchema,
       paymentAccountId: idSchema.optional(),
+      isVirtual: z.boolean().default(false),
     })
     .optional(),
 });
@@ -55,6 +59,7 @@ export const updateAccountSchema = createAccountSchema
         closingDay: dayOfMonthSchema.optional(),
         dueDay: dayOfMonthSchema.optional(),
         paymentAccountId: idSchema.nullable().optional(),
+        isVirtual: z.boolean().optional(),
       })
       .optional(),
   });
@@ -168,6 +173,12 @@ export function createAccount(
   if (parsed.kind !== 'credit_card' && parsed.card) {
     throw ruleViolation('Somente contas do tipo cartão de crédito aceitam configuração de fatura.');
   }
+  if (parsed.kind === 'credit_card' && (parsed.hasDebitCard || parsed.debitIsVirtual)) {
+    throw ruleViolation('Cartão de crédito não combina com cartão de débito na mesma conta.');
+  }
+  if (parsed.debitIsVirtual && !parsed.hasDebitCard) {
+    throw ruleViolation('Marque hasDebitCard para definir débito virtual.');
+  }
   if (parsed.card?.paymentAccountId) {
     getAccount(parsed.card.paymentAccountId, db);
   }
@@ -187,6 +198,8 @@ export function createAccount(
         icon: parsed.icon ?? null,
         notes: parsed.notes ?? null,
         aliases: parsed.aliases ?? null,
+        hasDebitCard: parsed.hasDebitCard,
+        debitIsVirtual: parsed.hasDebitCard ? parsed.debitIsVirtual : false,
       });
 
       let card: CreditCard | null = null;
@@ -197,6 +210,7 @@ export function createAccount(
           closingDay: parsed.card.closingDay,
           dueDay: parsed.card.dueDay,
           paymentAccountId: parsed.card.paymentAccountId ?? null,
+          isVirtual: parsed.card.isVirtual,
         });
       }
 
@@ -220,12 +234,21 @@ export function updateAccount(
   if (parsed.card && current.kind !== 'credit_card') {
     throw ruleViolation('Somente cartão de crédito aceita configuração de fatura.');
   }
+  if (current.kind === 'credit_card' && (parsed.hasDebitCard || parsed.debitIsVirtual)) {
+    throw ruleViolation('Cartão de crédito não combina com cartão de débito na mesma conta.');
+  }
+  if (parsed.debitIsVirtual === true && parsed.hasDebitCard === false) {
+    throw ruleViolation('Marque hasDebitCard para definir débito virtual.');
+  }
 
   return withMutate(
     options,
     (result) => `Alterou conta "${result.name}"`,
     (ctx) => {
       const { card: cardPatch, ...accountPatch } = parsed;
+      if (accountPatch.hasDebitCard === false) {
+        accountPatch.debitIsVirtual = false;
+      }
 
       const account =
         Object.keys(accountPatch).length > 0

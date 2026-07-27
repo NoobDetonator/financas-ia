@@ -756,6 +756,13 @@ export const api = {
   // Categorias, favorecidos, tags
   categories: (kind?: CategoryKind) => request<Category[]>('/categories', { query: { kind } }),
   categoryTree: (kind?: CategoryKind) => request<CategoryNode[]>('/categories/tree', { query: { kind } }),
+  createCategory: (body: {
+    name: string;
+    kind: CategoryKind;
+    parentId?: string;
+    color?: string;
+    icon?: string;
+  }) => request<WriteResult<Category>>('/categories', { method: 'POST', body }),
   payees: () => request<Payee[]>('/payees'),
   tags: () => request<Tag[]>('/tags'),
 

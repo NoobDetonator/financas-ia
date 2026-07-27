@@ -731,7 +731,10 @@
                     <label class="micro-label" for="full-input-date">DATA</label>
                     <input type="date" id="full-input-date" name="date" class="pc98-input" required />
                   </div>
-                  <div class="micro-label" id="add-cat-label">CATEGORIA</div>
+                  <div class="add-cat-toolbar">
+                    <div class="micro-label" id="add-cat-label">CATEGORIA</div>
+                    <button type="button" id="btn-new-category" class="pc98-btn btn-primary" style="padding: 4px 10px; font-size: 11px;">[+ NOVA CATEGORIA]</button>
+                  </div>
                   <div id="add-cat-tile-grid" class="add-cat-tile-grid" role="group" aria-labelledby="add-cat-label"></div>
                   <button type="submit" class="pc98-btn btn-primary text-ui" style="padding: 12px;">[REGISTRAR]</button>
                 </form>
@@ -943,6 +946,44 @@
           </div>
         </div>
         <button id="btn-close-help-confirm" class="pc98-btn btn-gold">[ENTENDI]</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- CATEGORY CREATE FORM -->
+  <div id="modal-category-form" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="category-form-title">
+    <div class="pc98-window accent-header" style="width: 440px; max-width: 95%;">
+      <div class="window-title-bar">
+        <div class="title-label"><span id="category-form-title">NOVA CATEGORIA</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-category-form" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <form id="form-category" style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="pc98-form-group">
+            <label class="micro-label" for="category-input-name">NOME</label>
+            <input type="text" id="category-input-name" name="name" class="pc98-input" required maxlength="60" autocomplete="off" placeholder="Ex.: Farmácia" />
+          </div>
+          <div class="pc98-form-group">
+            <label class="micro-label" for="category-input-kind">TIPO</label>
+            <select id="category-input-kind" name="kind" class="pc98-input" required>
+              <option value="expense">Despesa</option>
+              <option value="income">Receita</option>
+            </select>
+          </div>
+          <div class="pc98-form-group">
+            <label class="micro-label" for="category-input-parent">GRUPO (PAI)</label>
+            <select id="category-input-parent" name="parentId" class="pc98-input">
+              <option value="">— categoria raiz (novo grupo) —</option>
+            </select>
+            <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">
+              Subcategorias aparecem no registro. Raiz cria um novo grupo.
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
+            <button type="button" id="btn-cancel-category-form" class="pc98-btn">[CANCELAR]</button>
+            <button type="submit" id="btn-save-category-form" class="pc98-btn btn-primary">[CRIAR]</button>
+          </div>
+        </form>
       </div>
     </div>
   </div>

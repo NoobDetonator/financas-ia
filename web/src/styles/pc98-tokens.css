@@ -1948,10 +1948,20 @@ body.ai-dock-open .right-ai-sidebar {
   gap: 12px;
 }
 
+.add-cat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .add-cat-tile-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 8px;
+  max-height: 220px;
+  overflow-y: auto;
 }
 
 .invoice-metrics-grid {

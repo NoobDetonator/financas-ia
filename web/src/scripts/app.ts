@@ -2289,17 +2289,36 @@ export class KakeiboApp {
     if (!grid) return;
     grid.innerHTML = '';
 
-    const leafCats = CATEGORIES.filter((c) => c.kind === 'expense' && c.parentId && !c.isArchived).slice(0, 12);
-    if (!this.selectedAddCategoryId && leafCats[0]) {
-      this.selectedAddCategoryId = leafCats[0].id;
+    // Folhas de despesa + raízes sem filhas (novos grupos ainda sem subcategoria).
+    const expenseCats = CATEGORIES.filter((c) => c.kind === 'expense' && !c.isArchived);
+    const hasChildren = new Set(
+      expenseCats.filter((c) => c.parentId).map((c) => c.parentId as string),
+    );
+    const tileCats = expenseCats
+      .filter((c) => c.parentId !== null || !hasChildren.has(c.id))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+    if (
+      this.selectedAddCategoryId &&
+      !tileCats.some((c) => c.id === this.selectedAddCategoryId)
+    ) {
+      this.selectedAddCategoryId = null;
+    }
+    if (!this.selectedAddCategoryId && tileCats[0]) {
+      this.selectedAddCategoryId = tileCats[0].id;
     }
 
-    for (const cat of leafCats) {
+    for (const cat of tileCats) {
       const btn = document.createElement('button');
       btn.type = 'button';
       btn.className = `pc98-btn text-xs ${cat.id === this.selectedAddCategoryId ? 'btn-primary' : ''}`;
       btn.style.padding = '8px 6px';
+      const parentName =
+        cat.parentId != null
+          ? CATEGORIES.find((p) => p.id === cat.parentId)?.name
+          : null;
       btn.textContent = cat.name.toUpperCase();
+      btn.title = parentName ? `${parentName} › ${cat.name}` : cat.name;
       btn.setAttribute('aria-pressed', cat.id === this.selectedAddCategoryId ? 'true' : 'false');
       btn.addEventListener('click', () => {
         pc98Audio.playSelect();
@@ -2307,6 +2326,99 @@ export class KakeiboApp {
         this.prepareAddForm();
       });
       grid.appendChild(btn);
+    }
+
+    if (tileCats.length === 0) {
+      const empty = document.createElement('div');
+      empty.className = 'micro-label';
+      empty.style.color = 'var(--c-grey-blue)';
+      empty.style.gridColumn = '1 / -1';
+      empty.textContent = 'Nenhuma categoria ainda. Crie uma com [+ NOVA CATEGORIA].';
+      grid.appendChild(empty);
+    }
+  }
+
+  private syncCategoryParentOptions() {
+    const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
+    const parentSelect = document.getElementById('category-input-parent') as HTMLSelectElement | null;
+    if (!parentSelect) return;
+
+    const kind = (kindSelect?.value || 'expense') as 'expense' | 'income';
+    const previous = parentSelect.value;
+    parentSelect.innerHTML = '';
+
+    const rootOpt = document.createElement('option');
+    rootOpt.value = '';
+    rootOpt.textContent = '— categoria raiz (novo grupo) —';
+    parentSelect.appendChild(rootOpt);
+
+    const roots = CATEGORIES.filter(
+      (c) => c.kind === kind && c.parentId === null && !c.isArchived,
+    ).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+
+    for (const root of roots) {
+      const opt = document.createElement('option');
+      opt.value = root.id;
+      opt.textContent = root.name;
+      parentSelect.appendChild(opt);
+    }
+
+    if (previous && roots.some((r) => r.id === previous)) {
+      parentSelect.value = previous;
+    } else if (kind === 'expense') {
+      const alimentacao = roots.find((r) => /alimenta/i.test(r.name));
+      if (alimentacao) parentSelect.value = alimentacao.id;
+      else if (roots[0]) parentSelect.value = roots[0].id;
+    }
+  }
+
+  private openCategoryForm() {
+    const modal = document.getElementById('modal-category-form');
+    const nameInput = document.getElementById('category-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
+    if (nameInput) nameInput.value = '';
+    if (kindSelect) kindSelect.value = 'expense';
+    this.syncCategoryParentOptions();
+    modal?.classList.remove('hidden');
+    nameInput?.focus();
+  }
+
+  private closeCategoryForm() {
+    document.getElementById('modal-category-form')?.classList.add('hidden');
+  }
+
+  private async submitCategoryForm() {
+    const nameInput = document.getElementById('category-input-name') as HTMLInputElement | null;
+    const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
+    const parentSelect = document.getElementById('category-input-parent') as HTMLSelectElement | null;
+
+    const name = nameInput?.value.trim() ?? '';
+    if (!name) {
+      this.notify('Informe o nome da categoria.', 'warn');
+      return;
+    }
+
+    const kind = (kindSelect?.value || 'expense') as 'expense' | 'income';
+    const parentId = parentSelect?.value || undefined;
+
+    try {
+      const result = await api.createCategory({
+        name,
+        kind,
+        ...(parentId ? { parentId } : {}),
+      });
+      this.closeCategoryForm();
+      // Só pré-seleciona no form de registro se for despesa utilizável (folha ou raiz).
+      if (kind === 'expense') {
+        this.selectedAddCategoryId = result.data.id;
+      }
+      await this.reloadAfterWrite(`Categoria "${result.data.name}" criada.`, result.changeSetId);
+      if (this.activeTab === 'add') this.prepareAddForm();
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar categoria: ${String(error)}`,
+        'error',
+      );
     }
   }
 
@@ -2604,6 +2716,27 @@ export class KakeiboApp {
 
     document.getElementById('btn-new-account')?.addEventListener('click', () => {
       this.openAccountForm('create');
+    });
+
+    document.getElementById('btn-new-category')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.openCategoryForm();
+    });
+    document.getElementById('category-input-kind')?.addEventListener('change', () => {
+      this.syncCategoryParentOptions();
+    });
+    document.getElementById('btn-close-category-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeCategoryForm();
+    });
+    document.getElementById('btn-cancel-category-form')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeCategoryForm();
+    });
+    document.getElementById('form-category')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      void this.submitCategoryForm();
     });
 
     document.getElementById('accounts-filter-strip')?.addEventListener('click', (e) => {

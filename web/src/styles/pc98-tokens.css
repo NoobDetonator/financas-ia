@@ -1891,6 +1891,7 @@ body.ai-dock-open .right-ai-sidebar {
   display: inline-flex;
   gap: 3px;
   vertical-align: middle;
+  align-items: center;
 }
 
 .ai-thinking span {
@@ -1902,6 +1903,103 @@ body.ai-dock-open .right-ai-sidebar {
 
 .ai-thinking span:nth-child(2) { animation-delay: 150ms; }
 .ai-thinking span:nth-child(3) { animation-delay: 300ms; }
+
+.ai-work-status {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 8px;
+  padding: 8px;
+  border: 1px dashed var(--c-slate);
+  background: color-mix(in srgb, var(--c-void-black) 70%, transparent);
+}
+
+.ai-work-status-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--c-pale-cyan);
+}
+
+.ai-tool-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.ai-tool-chip {
+  font-family: var(--font-micro, monospace);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border: 1px solid var(--c-slate);
+  color: var(--c-bone-white);
+  background: transparent;
+}
+
+.ai-tool-chip.is-running {
+  border-color: var(--c-pale-cyan);
+  color: var(--c-pale-cyan);
+  animation: ai-tool-pulse 1.1s ease-in-out infinite;
+}
+
+.ai-tool-chip.is-done {
+  border-color: var(--c-green, #3dd68c);
+  color: var(--c-green, #3dd68c);
+}
+
+.ai-tool-chip.is-error {
+  border-color: var(--c-pink);
+  color: var(--c-pink);
+}
+
+.ai-tool-chip.is-confirm {
+  border-color: var(--c-amber);
+  color: var(--c-amber);
+}
+
+.ai-dock-status {
+  font-family: var(--font-micro, monospace);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+}
+
+.ai-dock-status.is-busy {
+  color: var(--c-pale-cyan);
+  animation: ai-pulse 900ms steps(1, end) infinite;
+}
+
+.ai-risk-item {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 8px 0;
+  border-bottom: 1px dotted var(--c-slate);
+}
+
+.ai-risk-item:last-child {
+  border-bottom: none;
+}
+
+.ai-risk-item-actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+@keyframes ai-tool-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.45; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-thinking span,
+  .ai-tool-chip.is-running,
+  .ai-dock-status.is-busy {
+    animation: none;
+  }
+}
 
 .accounts-cards-grid {
   display: grid;

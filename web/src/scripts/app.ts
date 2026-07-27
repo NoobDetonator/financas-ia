@@ -29,6 +29,49 @@ function escapeHtml(value: string): string {
 
 const AI_CONFIRM_RE = /^(sim|ok|confirmo|confirma|confirmado|pode( executar)?|aprova(r)?|aprovado)\b/i;
 
+/** Rótulos amigáveis das ferramentas — o chat mostra o que a IA está fazendo. */
+const AI_TOOL_LABELS: Record<string, string> = {
+  resolve_date: 'Resolver data',
+  get_balances: 'Consultar saldos',
+  get_account_balance: 'Saldo da conta',
+  get_month_overview: 'Resumo do mês',
+  search_transactions: 'Buscar lançamentos',
+  get_spending_by_category: 'Gastos por categoria',
+  get_category_trends: 'Tendências',
+  compare_months: 'Comparar meses',
+  get_budget_status: 'Status do orçamento',
+  get_upcoming: 'Próximos vencimentos',
+  get_projection: 'Projeção',
+  get_net_worth: 'Patrimônio',
+  get_cash_flow: 'Fluxo de caixa',
+  get_goals: 'Listar metas',
+  get_debts: 'Listar dívidas',
+  simulate_debt_payoff: 'Simular dívida',
+  get_portfolio: 'Portfólio',
+  find_duplicate_charges: 'Buscar duplicatas',
+  get_top_payees: 'Principais favorecidos',
+  get_rule_suggestions: 'Sugestões de regras',
+  get_budget_suggestions: 'Sugestões de orçamento',
+  get_category_spending: 'Gasto da categoria',
+  create_transaction: 'Criar lançamento',
+  create_installment_plan: 'Criar parcelamento',
+  create_transfer: 'Transferir',
+  categorize_transaction: 'Categorizar',
+  bulk_categorize: 'Categorizar em lote',
+  update_transaction: 'Atualizar lançamento',
+  delete_transaction: 'Excluir lançamento',
+  pay_card_invoice: 'Pagar fatura',
+  confirm_occurrence: 'Confirmar recorrência',
+  contribute_to_goal: 'Aportar na meta',
+  set_budget: 'Definir orçamento',
+  create_goal: 'Criar meta',
+  apply_rules: 'Aplicar regras',
+};
+
+function aiToolLabel(tool: string): string {
+  return AI_TOOL_LABELS[tool] ?? tool.replace(/_/g, ' ');
+}
+
 const CASHLIKE_KINDS = new Set(['checking', 'savings', 'cash', 'wallet', 'investment']);
 
 const ACCOUNT_KIND_LABELS: Record<string, string> = {
@@ -1912,7 +1955,7 @@ export class KakeiboApp {
              <div><strong>${escapeHtml(p.summary)}</strong></div>
              <div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(p.reason)}</div>
              <div class="ai-risk-item-actions">
-               <button type="button" class="pc98-btn btn-alert btn-ai-approve-one" data-token="${escapeHtml(p.token)}" style="padding: 2px 8px; font-size: 11px;">[APROVAR]</button>
+               <button type="button" class="pc98-btn btn-primary btn-ai-approve-one" data-token="${escapeHtml(p.token)}" style="padding: 2px 8px; font-size: 11px;">[CONFIRMAR]</button>
              </div>
            </div>`,
       )
@@ -1925,12 +1968,12 @@ export class KakeiboApp {
     const { meta, items } = pending;
     const count = items.length;
     meta.innerHTML = `
-      <span class="micro-label txt-amber">[AGUARDANDO CONFIRMAÇÃO · ${count}]</span>
+      <span class="micro-label txt-amber">[AGUARDANDO PERMISSÃO · ${count}]</span>
       <div style="display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap;">
-        <button type="button" class="pc98-btn btn-ai-reject-inline" style="padding: 2px 8px; font-size: 11px;">[REJEITAR]</button>
-        <button type="button" class="pc98-btn btn-alert btn-ai-approve-inline" style="padding: 2px 8px; font-size: 11px;">[APROVAR TODAS]</button>
+        <button type="button" class="pc98-btn btn-ai-reject-inline" style="padding: 2px 8px; font-size: 11px;">[NEGAR]</button>
+        <button type="button" class="pc98-btn btn-primary btn-ai-approve-inline" style="padding: 2px 8px; font-size: 11px;">[CONFIRMAR]</button>
       </div>
-      <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">"confirmo" no chat aprova todas</div>
+      <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">Use a caixa de permissão — ou estes botões.</div>
     `;
 
     meta.querySelector('.btn-ai-approve-inline')?.addEventListener('click', () => {
@@ -1966,7 +2009,7 @@ export class KakeiboApp {
     const tokens = pending.items.map((i) => i.token);
     this.pendingAiConfirm = null;
     this.aiRiskDismiss?.();
-    pending.meta.innerHTML = `<span class="micro-label txt-green">[APROVANDO…]</span>`;
+    pending.meta.innerHTML = `<span class="micro-label txt-green">[CONFIRMADO…]</span>`;
     void this.sendChatMessage(pending.originalMessage, tokens, { silentUser: true });
   }
 
@@ -1975,7 +2018,13 @@ export class KakeiboApp {
     this.pendingAiConfirm = null;
     this.aiRiskReject?.();
     if (pending) {
-      pending.meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
+      pending.meta.innerHTML = `<span class="micro-label txt-pink">[NEGADO]</span>`;
+    }
+    const dockStatus = document.getElementById('ai-dock-status');
+    if (dockStatus) {
+      dockStatus.classList.remove('is-busy');
+      dockStatus.classList.add('txt-green');
+      dockStatus.textContent = 'STATUS: MONITORANDO';
     }
   }
 
@@ -2287,13 +2336,20 @@ export class KakeiboApp {
       streamBox.scrollTop = streamBox.scrollHeight;
     }
 
-    // Bolha da IA, preenchida conforme o stream chega.
+    // Bolha da IA, com status de trabalho + tools em tempo real.
     const aiBubble = document.createElement('div');
     aiBubble.className = 'chat-bubble-row ai-side';
     aiBubble.innerHTML = `
       <div class="chat-bubble ai-bubble">
         <div class="micro-label" style="color: var(--c-bone-white); margin-bottom: 4px;">KAKEIBO.AI</div>
-        <div class="ai-response-body"><span class="ai-thinking"><span></span><span></span><span></span></span></div>
+        <div class="ai-work-status" aria-live="polite">
+          <div class="ai-work-status-header micro-label">
+            <span class="ai-work-phase">TRABALHANDO</span>
+            <span class="ai-thinking" aria-hidden="true"><span></span><span></span><span></span></span>
+          </div>
+          <div class="ai-tool-chip-row"></div>
+        </div>
+        <div class="ai-response-body"></div>
         <div class="ai-response-meta"></div>
       </div>
     `;
@@ -2302,21 +2358,68 @@ export class KakeiboApp {
 
     const body = aiBubble.querySelector('.ai-response-body') as HTMLElement;
     const meta = aiBubble.querySelector('.ai-response-meta') as HTMLElement;
+    const workStatus = aiBubble.querySelector('.ai-work-status') as HTMLElement;
+    const workPhase = aiBubble.querySelector('.ai-work-phase') as HTMLElement;
+    const toolRow = aiBubble.querySelector('.ai-tool-chip-row') as HTMLElement;
+
+    const toolChips = new Map<string, HTMLElement>();
+
+    const upsertToolChip = (
+      toolCallId: string,
+      tool: string,
+      state: 'running' | 'done' | 'error' | 'confirm',
+    ) => {
+      let chip = toolChips.get(toolCallId);
+      if (!chip) {
+        chip = document.createElement('span');
+        chip.className = 'ai-tool-chip';
+        chip.dataset.tool = tool;
+        toolRow.appendChild(chip);
+        toolChips.set(toolCallId, chip);
+      }
+      chip.classList.remove('is-running', 'is-done', 'is-error', 'is-confirm');
+      chip.classList.add(`is-${state}`);
+      const mark =
+        state === 'running' ? '…' : state === 'done' ? '✓' : state === 'confirm' ? '?' : '!';
+      chip.textContent = `${mark} ${aiToolLabel(tool)}`;
+      streamBox.scrollTop = streamBox.scrollHeight;
+    };
 
     this.isTyping = true;
-    this.setChatBusy(true);
+    this.setChatBusy(true, 'PROCESSANDO…');
 
     let accumulated = '';
     let firstChunk = true;
+    let sawTool = false;
 
     try {
       await aiChatStream(text, {
         ...(this.conversationId ? { conversationId: this.conversationId } : {}),
         approvedTokens,
+        onToolStart: ({ tool, toolCallId }) => {
+          sawTool = true;
+          workPhase.textContent = 'USANDO FERRAMENTAS';
+          this.setChatBusy(true, `TOOL: ${aiToolLabel(tool).toUpperCase()}`);
+          upsertToolChip(toolCallId, tool, 'running');
+        },
+        onToolResult: ({ tool, toolCallId, needsConfirmation, error }) => {
+          if (error) upsertToolChip(toolCallId, tool, 'error');
+          else if (needsConfirmation) upsertToolChip(toolCallId, tool, 'confirm');
+          else upsertToolChip(toolCallId, tool, 'done');
+          const stillRunning = [...toolChips.values()].some((c) => c.classList.contains('is-running'));
+          if (!stillRunning && !firstChunk) {
+            workPhase.textContent = 'RESPONDENDO';
+            this.setChatBusy(true, 'RESPONDENDO…');
+          } else if (!stillRunning && firstChunk) {
+            workPhase.textContent = 'ANALISANDO RESULTADOS';
+            this.setChatBusy(true, 'ANALISANDO…');
+          }
+        },
         onText: (chunk) => {
           if (firstChunk) {
-            body.textContent = '';
             firstChunk = false;
+            workPhase.textContent = sawTool ? 'RESPONDENDO' : 'ESCREVENDO';
+            this.setChatBusy(true, 'RESPONDENDO…');
             pc98Audio.playTypewriter();
           }
           accumulated += chunk;
@@ -2328,9 +2431,18 @@ export class KakeiboApp {
           // Só ao final: durante o stream, texto puro evita reparsear markdown
           // incompleto a cada pedaço.
           if (accumulated) body.innerHTML = renderAiMarkdown(accumulated);
+          else if (!sawTool) body.textContent = '';
+
+          if (result.pendingConfirmations.length > 0) {
+            workPhase.textContent = 'AGUARDANDO SUA PERMISSÃO';
+            workStatus.querySelector('.ai-thinking')?.remove();
+          } else {
+            workStatus.remove();
+          }
           this.handleAiOutcome(result, text, meta);
         },
         onError: (message) => {
+          workPhase.textContent = 'FALHA';
           body.textContent = `Erro: ${message}`;
           body.classList.add('txt-pink');
         },
@@ -2338,25 +2450,40 @@ export class KakeiboApp {
     } catch (error) {
       const message =
         error instanceof ApiError ? error.message : error instanceof Error ? error.message : String(error);
+      workPhase.textContent = 'FALHA';
       body.textContent = message;
       body.classList.add('txt-pink');
       pc98Audio.playWarning();
     } finally {
       this.isTyping = false;
       this.setChatBusy(false);
+      // Se ainda não havia pending (workStatus removido no onDone), ok.
+      // Se falhou sem pending, some o indicador de trabalho.
+      if (!this.pendingAiConfirm) {
+        workStatus.remove();
+      }
       streamBox.scrollTop = streamBox.scrollHeight;
     }
   }
 
-  /** Habilita/desabilita a entrada durante a resposta. */
-  private setChatBusy(busy: boolean) {
+  /** Habilita/desabilita a entrada durante a resposta + status no dock. */
+  private setChatBusy(busy: boolean, statusLabel?: string) {
     const input = document.getElementById('chat-input-text') as HTMLInputElement | null;
     const send = document.getElementById('btn-send-chat') as HTMLButtonElement | null;
+    const dockStatus = document.getElementById('ai-dock-status');
+    document.body.classList.toggle('ai-chat-busy', busy);
     if (input) {
       input.disabled = busy;
-      input.placeholder = busy ? 'Aguardando resposta...' : 'Pergunte ou lance um gasto...';
+      input.placeholder = busy ? 'IA trabalhando…' : 'Pergunte ou lance um gasto...';
     }
     if (send) send.disabled = busy;
+    if (dockStatus) {
+      dockStatus.classList.toggle('is-busy', busy);
+      dockStatus.classList.toggle('txt-green', !busy);
+      dockStatus.textContent = busy
+        ? `STATUS: ${statusLabel ?? 'TRABALHANDO…'}`
+        : 'STATUS: MONITORANDO';
+    }
   }
 
   /**
@@ -2398,6 +2525,12 @@ export class KakeiboApp {
 
     this.pendingAiConfirm = { items, originalMessage, meta };
     this.renderPendingAiConfirmMeta();
+    const dockStatus = document.getElementById('ai-dock-status');
+    if (dockStatus) {
+      dockStatus.classList.add('is-busy');
+      dockStatus.classList.remove('txt-green');
+      dockStatus.textContent = 'STATUS: AGUARDANDO PERMISSÃO';
+    }
     this.triggerAiRiskConfirmation();
   }
 
@@ -3207,7 +3340,7 @@ export class KakeiboApp {
         if (streamBox) {
           const note = document.createElement('div');
           note.className = 'chat-bubble-row ai-side';
-          note.innerHTML = `<div class="chat-bubble ai-bubble"><div class="micro-label txt-green">Confirmação recebida — aprovando todas.</div></div>`;
+          note.innerHTML = `<div class="chat-bubble ai-bubble"><div class="micro-label txt-green">Confirmação pelo chat — executando.</div></div>`;
           streamBox.appendChild(note);
           streamBox.scrollTop = streamBox.scrollHeight;
         }

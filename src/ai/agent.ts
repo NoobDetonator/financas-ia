@@ -141,6 +141,17 @@ function toolContextFor(
 
       if (action.changeSetId) collected.changeSetIds.push(action.changeSetId);
       if (action.status === 'executed') collected.executedTools.push(action.tool);
+      if (action.status === 'pending' && action.pending) {
+        const token = action.pending.token;
+        if (!collected.pending.some((p) => p.token === token)) {
+          collected.pending.push({
+            tool: action.tool,
+            summary: action.pending.summary,
+            reason: action.pending.reason,
+            token,
+          });
+        }
+      }
     },
   };
 }
@@ -251,11 +262,14 @@ export async function chatStream(userMessage: string, options: ChatOptions = {})
         const output = call.output as Record<string, unknown> | undefined;
         if (output?.needsConfirmation !== true) continue;
 
+        const token = String(output.confirmationToken ?? '');
+        if (!token || collected.pending.some((p) => p.token === token)) continue;
+
         collected.pending.push({
           tool: call.toolName,
           summary: String(output.summary ?? ''),
           reason: String(output.reason ?? ''),
-          token: String(output.confirmationToken ?? ''),
+          token,
         });
       }
     },

@@ -944,6 +944,14 @@ export async function aiChatStream(
     conversationId?: string;
     approvedTokens?: string[];
     onText: (chunk: string) => void;
+    onToolStart?: (info: { tool: string; toolCallId: string }) => void;
+    onToolResult?: (info: {
+      tool: string;
+      toolCallId: string;
+      needsConfirmation?: boolean;
+      summary?: string;
+      error?: boolean;
+    }) => void;
     onDone: (result: {
       conversationId: string;
       pendingConfirmations: AiChatResult['pendingConfirmations'];
@@ -1001,6 +1009,8 @@ export async function aiChatStream(
       }
 
       if (event === 'text') options.onText(payload.chunk ?? '');
+      else if (event === 'tool_start') options.onToolStart?.(payload);
+      else if (event === 'tool_result') options.onToolResult?.(payload);
       else if (event === 'done') options.onDone(payload);
       else if (event === 'error') options.onError?.(payload.message ?? 'Erro desconhecido.');
     }

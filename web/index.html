@@ -765,7 +765,7 @@
                 </div>
                 <div>
                   <div class="micro-label" style="color: var(--c-pale-cyan);">KAKEIBO.AI SYSTEM</div>
-                  <div class="micro-label txt-green">STATUS: MONITORANDO</div>
+                  <div id="ai-dock-status" class="micro-label ai-dock-status txt-green">STATUS: MONITORANDO</div>
                 </div>
               </div>
 
@@ -908,21 +908,23 @@
 
   <!-- AI RISK CONFIRMATION PREVIEW MODAL -->
   <div id="modal-ai-risk-confirm" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="ai-risk-title">
-    <div class="pc98-window pink-frame" style="width: 500px; max-width: 90%;">
+    <div class="pc98-window pink-frame" style="width: 520px; max-width: 95%;">
       <div class="window-title-bar">
-        <div class="title-label"><span id="ai-risk-title">CONFIRMAÇÃO DE AÇÃO DA IA</span></div>
+        <div class="title-label"><span id="ai-risk-title">PERMISSÃO DA IA</span></div>
         <div class="window-controls"><button type="button" id="btn-close-risk" class="win-btn" aria-label="Fechar">x</button></div>
       </div>
       <div class="window-content" style="gap: 12px;">
         <div class="micro-label txt-pink" style="display: flex; align-items: center; gap: 6px; font-size: 12px;">
           <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M7 2H9L14 12V14H2V12L7 2ZM7 6H9V9H7V6ZM7 10H9V11H7V10Z" fill="currentColor"/></svg>
-          OPERAÇÃO DE ALTO RISCO DETECTADA
+          A IA pede sua permissão para continuar
         </div>
         <div id="ai-risk-diff-text" style="font-size: 14px; color: var(--c-bone-white);" class="pc98-well"></div>
-        <div class="micro-label" style="color: var(--c-grey-blue);">Aprove cada operação com [APROVAR], ou [APROVAR TODAS]. Digite "confirmo" no chat para aprovar TODAS as restantes.</div>
+        <div class="micro-label" style="color: var(--c-grey-blue);">
+          Confirme ou negue abaixo. Não precisa digitar no chat.
+        </div>
         <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">
-          <button id="btn-reject-risk" class="pc98-btn">[REJEITAR TODAS]</button>
-          <button id="btn-confirm-risk" class="pc98-btn btn-alert">[APROVAR TODAS]</button>
+          <button type="button" id="btn-reject-risk" class="pc98-btn">[NEGAR]</button>
+          <button type="button" id="btn-confirm-risk" class="pc98-btn btn-primary">[CONFIRMAR]</button>
         </div>
       </div>
     </div>

@@ -126,8 +126,8 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
         tags: ['ia'],
         summary: 'Conversa com resposta em streaming (SSE)',
         description:
-          'Devolve `text/event-stream`. Eventos: `text` com os pedaços da resposta, `done` com o ' +
-          'resultado final (confirmações pendentes e change sets).',
+          'Devolve `text/event-stream`. Eventos: `start`, `tool_start`, `tool_result`, `text`, ' +
+          '`done` (confirmações pendentes e change sets) e `error`.',
         body: z.object({
           message: z.string().min(1).max(4000),
           conversationId: z.string().optional(),
@@ -156,9 +156,53 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
       send('start', { conversationId: id });
 
       try {
-        for await (const chunk of stream.textStream) {
-          send('text', { chunk });
+        // fullStream inclui tool-call / tool-result — sem isso a UI fica muda
+        // enquanto o modelo consulta o banco e parece travada.
+        for await (const part of stream.fullStream) {
+          if (part.type === 'text-delta') {
+            if (part.text) send('text', { chunk: part.text });
+            continue;
+          }
+
+          if (part.type === 'tool-call') {
+            send('tool_start', {
+              tool: part.toolName,
+              toolCallId: part.toolCallId,
+            });
+            continue;
+          }
+
+          if (part.type === 'tool-result') {
+            const output = part.output as Record<string, unknown> | undefined;
+            if (output?.needsConfirmation === true) {
+              const token = String(output.confirmationToken ?? '');
+              if (token && !collected.pending.some((p) => p.token === token)) {
+                collected.pending.push({
+                  tool: part.toolName,
+                  summary: String(output.summary ?? ''),
+                  reason: String(output.reason ?? ''),
+                  token,
+                });
+              }
+            }
+            send('tool_result', {
+              tool: part.toolName,
+              toolCallId: part.toolCallId,
+              needsConfirmation: output?.needsConfirmation === true,
+              summary: typeof output?.summary === 'string' ? output.summary : undefined,
+            });
+            continue;
+          }
+
+          if (part.type === 'tool-error') {
+            send('tool_result', {
+              tool: part.toolName,
+              toolCallId: part.toolCallId,
+              error: true,
+            });
+          }
         }
+
         await stream.finishReason;
 
         send('done', {

@@ -37,6 +37,8 @@ export interface ChatResult {
   pendingConfirmations: Array<{ tool: string; summary: string; reason: string; token: string }>;
   /** Change sets criados — cada um revertível. */
   changeSetIds: string[];
+  /** Ferramentas de escrita que de fato executaram neste turno. */
+  executedTools: string[];
   usage: { inputTokens: number | undefined; outputTokens: number | undefined };
 }
 
@@ -116,6 +118,7 @@ function toolContextFor(
   collected: {
     pending: ChatResult['pendingConfirmations'];
     changeSetIds: string[];
+    executedTools: string[];
   },
 ): ToolContext {
   const db = options.db ?? getDb();
@@ -137,6 +140,7 @@ function toolContextFor(
         .run();
 
       if (action.changeSetId) collected.changeSetIds.push(action.changeSetId);
+      if (action.status === 'executed') collected.executedTools.push(action.tool);
     },
   };
 }
@@ -157,7 +161,7 @@ export async function chat(userMessage: string, options: ChatOptions = {}): Prom
 
   getConversation(conversationId, db);
 
-  const collected = { pending: [] as ChatResult['pendingConfirmations'], changeSetIds: [] as string[] };
+  const collected = { pending: [] as ChatResult['pendingConfirmations'], changeSetIds: [] as string[], executedTools: [] as string[] };
   const context = toolContextFor(conversationId, options, collected);
   const tools = buildTools(context);
 
@@ -204,6 +208,7 @@ export async function chat(userMessage: string, options: ChatOptions = {}): Prom
     toolCalls,
     pendingConfirmations: collected.pending,
     changeSetIds: collected.changeSetIds,
+    executedTools: collected.executedTools,
     usage: { inputTokens: result.usage.inputTokens, outputTokens: result.usage.outputTokens },
   };
 }
@@ -223,7 +228,7 @@ export async function chatStream(userMessage: string, options: ChatOptions = {})
 
   getConversation(conversationId, db);
 
-  const collected = { pending: [] as ChatResult['pendingConfirmations'], changeSetIds: [] as string[] };
+  const collected = { pending: [] as ChatResult['pendingConfirmations'], changeSetIds: [] as string[], executedTools: [] as string[] };
   const context = toolContextFor(conversationId, options, collected);
   const tools = buildTools(context);
   const history = conversationMessages(conversationId, db);

@@ -698,6 +698,7 @@ export interface AiChatResult {
     token: string;
   }>;
   changeSetIds: string[];
+  executedTools: string[];
   usage: { inputTokens?: number; outputTokens?: number };
 }
 
@@ -947,6 +948,7 @@ export async function aiChatStream(
       conversationId: string;
       pendingConfirmations: AiChatResult['pendingConfirmations'];
       changeSetIds: string[];
+      executedTools?: string[];
     }) => void;
     onError?: (message: string) => void;
   },

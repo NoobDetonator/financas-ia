@@ -532,23 +532,56 @@ export async function loadAll(): Promise<LoadReport> {
   return { ok: failed.length === 0, failed, elapsedMs: Math.round(performance.now() - started) };
 }
 
-/** Recarrega o que muda depois de uma escrita. */
+/** Recarrega o que muda depois de uma escrita (UI ou IA). */
 export async function refreshAfterWrite(): Promise<void> {
-  const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
+  const [
+    page,
+    balances,
+    overview,
+    invoices,
+    budgets,
+    worth,
+    projection,
+    monthlyFlow,
+    categories,
+    accounts,
+    goals,
+    recurrences,
+    rules,
+    debts,
+    portfolio,
+    payees,
+    tags,
+    installmentPlans,
+    commitments,
+    upcomingBills,
+    pendingOccurrences,
+  ] = await Promise.all([
+    api.transactions({ limit: 300, sort: 'date_desc' }),
+    api.balances(),
+    api.monthOverview(),
+    api.invoices(),
+    api.budgets(),
+    api.netWorth(),
+    api.projection(60),
+    api.monthlyFlow(monthsAgo(5), CURRENT_MONTH),
+    api.categories(),
+    api.accounts(),
+    api.goals('active'),
+    api.recurrences(),
+    api.rules(),
+    api.debts(),
+    api.portfolio(),
+    api.payees(),
+    api.tags(),
+    api.installmentPlans(),
+    api.commitments(30),
+    api.upcomingBills(30),
+    api.pendingOccurrences(),
+  ]);
 
-  const [page, balances, overview, invoices, budgets, worth, projection, monthlyFlow, categories, accounts] =
-    await Promise.all([
-      api.transactions({ limit: 300, sort: 'date_desc' }),
-      api.balances(),
-      api.monthOverview(),
-      api.invoices(),
-      api.budgets(),
-      api.netWorth(),
-      api.projection(60),
-      api.monthlyFlow(monthsAgo(5), CURRENT_MONTH),
-      api.categories(),
-      api.accounts(),
-    ]);
+  INSTALLMENT_PLANS = installmentPlans;
+  const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
 
   TRANSACTIONS = page.items.map((tx) => adaptTransaction(tx, planTotals, new Map()));
   BALANCES = balances;
@@ -572,6 +605,17 @@ export async function refreshAfterWrite(): Promise<void> {
       network: a.card.network ?? 'other',
       holderLabel: a.card.holderLabel ?? null,
     }));
+  GOALS = goals;
+  RECURRENCES = recurrences;
+  RULES = rules.map(adaptRule);
+  DEBTS = debts;
+  PORTFOLIO = portfolio;
+  HOLDINGS = portfolio.positions;
+  PAYEES = payees;
+  TAGS = tags;
+  COMMITMENTS = commitments;
+  UPCOMING_BILLS = upcomingBills;
+  PENDING_OCCURRENCES = pendingOccurrences;
 }
 
 /** Substitui as tags de uma transação no store, após edição. */

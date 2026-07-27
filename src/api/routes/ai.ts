@@ -100,6 +100,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
             toolCalls: z.array(z.object({ tool: z.string(), args: z.any(), result: z.any() })),
             pendingConfirmations: z.array(pendingDto),
             changeSetIds: z.array(z.string()),
+            executedTools: z.array(z.string()),
             usage: z.object({
               inputTokens: z.number().optional(),
               outputTokens: z.number().optional(),
@@ -164,6 +165,7 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
           conversationId: id,
           pendingConfirmations: collected.pending,
           changeSetIds: collected.changeSetIds,
+          executedTools: collected.executedTools,
         });
       } catch (error) {
         send('error', { message: error instanceof Error ? error.message : String(error) });

@@ -57,6 +57,26 @@ function cardNetworkLabel(network: string | null | undefined): string {
   return CARD_NETWORK_LABELS[network ?? 'other'] ?? 'Cartão';
 }
 
+/** Mensagem curta do que a IA gravou, para o toast. */
+function summarizeAiWrites(tools: string[], changeSetCount: number): string {
+  const unique = [...new Set(tools)];
+  if (unique.includes('create_goal')) return 'Meta criada pela IA.';
+  if (unique.includes('create_transaction')) return 'Lançamento criado pela IA.';
+  if (unique.includes('create_transfer')) return 'Transferência criada pela IA.';
+  if (unique.includes('create_installment_plan')) return 'Parcelamento criado pela IA.';
+  if (unique.includes('create_recurrence')) return 'Recorrência criada pela IA.';
+  if (unique.includes('set_budget')) return 'Orçamento atualizado pela IA.';
+  if (unique.includes('contribute_to_goal')) return 'Aporte na meta registrado pela IA.';
+  if (unique.includes('pay_card_invoice')) return 'Fatura paga pela IA.';
+  if (unique.includes('delete_transaction')) return 'Lançamento excluído pela IA.';
+  if (unique.includes('categorize_transaction') || unique.includes('bulk_categorize')) {
+    return 'Categorização aplicada pela IA.';
+  }
+  if (unique.includes('apply_rules')) return 'Regras aplicadas pela IA.';
+  if (changeSetCount === 1) return 'Alteração da IA aplicada.';
+  return `${changeSetCount} alterações da IA aplicadas.`;
+}
+
 function parseReaisToCents(raw: string): number {
   const n = parseFloat(raw.replace(',', '.').trim());
   if (!Number.isFinite(n)) return 0;
@@ -2341,19 +2361,30 @@ export class KakeiboApp {
 
   /**
    * Trata o que voltou do turno: confirmações pendentes, escritas e undo.
+   * Após escrita da IA, recarrega o store completo para a tela atualizar na hora.
    */
   private handleAiOutcome(
-    result: { pendingConfirmations: AiChatResult['pendingConfirmations']; changeSetIds: string[] },
+    result: {
+      pendingConfirmations: AiChatResult['pendingConfirmations'];
+      changeSetIds: string[];
+      executedTools?: string[];
+    },
     originalMessage: string,
     meta: HTMLElement,
   ) {
     // Escritas aconteceram: recarrega os dados e oferece desfazer.
     if (result.changeSetIds.length > 0) {
       const changeSetId = result.changeSetIds[result.changeSetIds.length - 1]!;
-      void this.reloadAfterWrite(`${result.changeSetIds.length} alteração(ões) aplicada(s)`, changeSetId);
+      const tools = result.executedTools ?? [];
+      const message = summarizeAiWrites(tools, result.changeSetIds.length);
 
-      meta.innerHTML = `<span class="micro-label txt-green">[GRAVADO]</span>`;
+      meta.innerHTML = `<span class="micro-label txt-green">[GRAVADO · ATUALIZANDO…]</span>`;
       pc98Audio.playSelect();
+
+      void this.reloadAfterWrite(message, changeSetId).then(() => {
+        meta.innerHTML = `<span class="micro-label txt-green">[GRAVADO · TELA ATUALIZADA]</span>`;
+        this.focusViewAfterAiWrites(tools);
+      });
     }
 
     if (result.pendingConfirmations.length === 0) return;
@@ -2382,6 +2413,44 @@ export class KakeiboApp {
         `Alteração feita, mas não consegui recarregar a tela: ${error instanceof Error ? error.message : String(error)}`,
         'warn',
       );
+    }
+  }
+
+  /**
+   * Depois que a IA escreve, leva o usuário à tela onde a mudança aparece —
+   * evita o "já criei" sem nada visível na aba atual.
+   */
+  private focusViewAfterAiWrites(tools: string[]) {
+    const unique = new Set(tools);
+    if (unique.has('create_goal') || unique.has('contribute_to_goal')) {
+      if (this.activeTab !== 'goals') this.switchTab('goals');
+      else this.renderGoals();
+      return;
+    }
+    if (
+      unique.has('create_transaction') ||
+      unique.has('update_transaction') ||
+      unique.has('delete_transaction') ||
+      unique.has('create_transfer') ||
+      unique.has('categorize_transaction') ||
+      unique.has('bulk_categorize')
+    ) {
+      if (this.activeTab !== 'transactions') this.switchTab('transactions');
+      else this.renderJournalTransactions(this.currentFilterKey);
+      return;
+    }
+    if (unique.has('create_installment_plan') || unique.has('pay_card_invoice')) {
+      if (this.activeTab !== 'accounts') this.switchTab('accounts');
+      else this.renderAccounts();
+      return;
+    }
+    if (unique.has('set_budget')) {
+      if (this.activeTab !== 'category') this.switchTab('category');
+      return;
+    }
+    if (unique.has('create_recurrence') || unique.has('confirm_occurrence')) {
+      if (this.activeTab !== 'recurrences') this.switchTab('recurrences');
+      return;
     }
   }
 

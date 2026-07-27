@@ -6,11 +6,34 @@ A IA não é enfeite: ela lança e edita dados por linguagem natural ("gastei 45
 mercado ontem no crédito do nubank em 3x") e gera insights sobre os seus números
 reais. Toda alteração que ela faz é auditada e reversível.
 
-**Completo e funcionando.** Backend com 111 rotas e 364 testes, interface PC-98
-ligada à API real, IA conversacional com confirmação e desfazer.
-verificada. Falta o frontend.
+**Completo e funcionando.** 111 rotas documentadas, 365 testes, interface PC-98
+ligada à API real, IA conversacional com confirmação e desfazer, e verificação
+automática das invariantes contábeis.
 
-## Requisitos
+## Começando (Windows)
+
+Três arquivos, na ordem. Clique duas vezes em cada um:
+
+| Arquivo | Quando usar |
+|---|---|
+| **CONFIGURAR.bat** | Uma vez, na primeira instalação. Instala tudo, cria o `.env` e prepara o banco. |
+| **POPULAR-EXEMPLO.bat** | Opcional. Cria 12 meses de dados fictícios para experimentar. |
+| **INICIAR.bat** | No dia a dia. Sobe o sistema e abre o navegador. |
+
+Depois do `CONFIGURAR.bat`, abra o arquivo `.env` e preencha duas coisas:
+
+- **`APP_PASSWORD`** — a senha para entrar no sistema. Use algo longo se for
+  acessar pela rede: o servidor fica exposto no seu Wi-Fi, e o limitador de cinco
+  tentativas por minuto não protege contra uma senha óbvia.
+- **`DEEPSEEK_API_KEY`** — sua chave em [platform.deepseek.com](https://platform.deepseek.com).
+  Sem ela o sistema funciona normalmente, só sem o assistente de IA.
+
+Para mexer no código, use **DESENVOLVER.bat** — abre servidor e interface com
+recarga automática.
+
+## Começando (Linux, macOS ou pela linha de comando)
+
+### Requisitos
 
 - Node 22 ou superior (testado no 24.16)
 - Nada mais. O banco é um arquivo SQLite.

@@ -174,6 +174,17 @@ export async function registerAiRoutes(app: FastifyInstance): Promise<void> {
 
           if (part.type === 'tool-result') {
             const output = part.output as Record<string, unknown> | undefined;
+            if (output?.needsConfirmation === true) {
+              const token = String(output.confirmationToken ?? '');
+              if (token && !collected.pending.some((p) => p.token === token)) {
+                collected.pending.push({
+                  tool: part.toolName,
+                  summary: String(output.summary ?? ''),
+                  reason: String(output.reason ?? ''),
+                  token,
+                });
+              }
+            }
             send('tool_result', {
               tool: part.toolName,
               toolCallId: part.toolCallId,

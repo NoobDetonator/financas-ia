@@ -63,6 +63,7 @@ export interface ToolContext {
     risk: RiskAssessment;
     status: 'executed' | 'pending';
     changeSetId?: string;
+    pending?: { token: string; summary: string; reason: string };
   }) => void;
 }
 
@@ -103,12 +104,20 @@ function guarded<T>(
   const preApproved = context.approved?.has(key) ?? false;
 
   if (risk.level === 'confirm' && !preApproved) {
-    context.onAction?.({ tool: toolName, args, risk, status: 'pending' });
+    const summary = summarize();
+    const reason = risk.reason ?? 'Esta operação precisa da sua confirmação.';
+    context.onAction?.({
+      tool: toolName,
+      args,
+      risk,
+      status: 'pending',
+      pending: { token: key, summary, reason },
+    });
     return {
       needsConfirmation: true,
-      reason: risk.reason ?? 'Esta operação precisa da sua confirmação.',
+      reason,
       confirmationToken: key,
-      summary: summarize(),
+      summary,
     };
   }
 

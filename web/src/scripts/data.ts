@@ -561,9 +561,47 @@ export function formatMoney(cents: number): string {
   return `${cents < 0 ? '-' : ''}R$ ${int.toLocaleString('pt-BR')},${dec}`;
 }
 
+/**
+ * Formata data civil para exibição.
+ *
+ * Aceita `YYYY-MM-DD`, `YYYY.MM.DD` e `DD/MM/YYYY`. Formato desconhecido
+ * devolve o texto original — nunca `undefined/undefined`, que era o sintoma
+ * quando o formulário de novo registro gravava data com pontos.
+ */
 export function formatDate(iso: string): string {
-  const [y, m, d] = iso.slice(0, 10).split('-');
-  return `${d}/${m}/${y}`;
+  if (!iso) return '—';
+  const raw = iso.trim().slice(0, 10);
+  const normalized = raw.replace(/[./]/g, '-');
+  const parts = normalized.split('-').filter(Boolean);
+  if (parts.length !== 3) return raw;
+
+  if (parts[0]!.length === 4) {
+    const [y, m, d] = parts;
+    return `${d}/${m}/${y}`;
+  }
+  if (parts[2]!.length === 4) {
+    const [d, m, y] = parts;
+    return `${d}/${m}/${y}`;
+  }
+  return raw;
+}
+
+/** Normaliza entrada de formulário para `YYYY-MM-DD`. */
+export function toIsoDate(input: string, fallback: string = TODAY): string {
+  const raw = (input || fallback).trim().slice(0, 10);
+  const normalized = raw.replace(/[./]/g, '-');
+  const parts = normalized.split('-').filter(Boolean);
+  if (parts.length !== 3) return fallback;
+
+  if (parts[0]!.length === 4) {
+    const [y, m, d] = parts;
+    return `${y}-${m!.padStart(2, '0')}-${d!.padStart(2, '0')}`;
+  }
+  if (parts[2]!.length === 4) {
+    const [d, m, y] = parts;
+    return `${y}-${m!.padStart(2, '0')}-${d!.padStart(2, '0')}`;
+  }
+  return fallback;
 }
 
 // ── Consultas derivadas ─────────────────────────────────────────────────────
@@ -636,6 +674,126 @@ export function netWorth(): number {
 /** Taxa de poupança do mês. `null` quando não houve receita. */
 export function savingsRate(): number | null {
   return OVERVIEW?.savingsRatePercent ?? null;
+}
+
+/**
+ * Progresso da meta ativa principal (maior `targetCents`).
+ * `null` quando não há meta — o medidor deve mostrar vazio, não 74% fictício.
+ */
+export function primaryGoalProgressPercent(): number | null {
+  const active = GOALS.filter((g) => g.status === 'active');
+  if (active.length === 0) return null;
+  const goal = [...active].sort((a, b) => b.targetCents - a.targetCents)[0]!;
+  return Math.max(0, Math.min(100, Math.round(goal.progressPercent)));
+}
+
+export function primaryGoalName(): string | null {
+  const active = GOALS.filter((g) => g.status === 'active');
+  if (active.length === 0) return null;
+  return [...active].sort((a, b) => b.targetCents - a.targetCents)[0]!.name;
+}
+
+export interface RadarMetric {
+  label: string;
+  val: number;
+}
+
+/**
+ * Eixos do radar a partir de dados reais.
+ *
+ * Devolve `null` quando não há sinal financeiro (banco zerado) — aí o gráfico
+ * mostra "SEM DADOS" em vez de um polígono decorativo.
+ */
+export function radarHealthMetrics(): RadarMetric[] | null {
+  const hasSignal =
+    (OVERVIEW?.transactionCount ?? 0) > 0 ||
+    GOALS.length > 0 ||
+    BUDGETS.length > 0 ||
+    DEBTS.length > 0 ||
+    (PORTFOLIO?.positions.length ?? 0) > 0 ||
+    BALANCES.some((b) => b.availableCents !== 0 || b.openingBalanceCents !== 0);
+
+  if (!hasSignal) return null;
+
+  const clamp01 = (n: number) => Math.max(0, Math.min(1, n));
+
+  const savings = savingsRate();
+  const poupanca = savings == null ? 0 : clamp01(savings / 100);
+
+  const expense = currentMonthExpense();
+  const available = totalAvailableBalance();
+  // Três meses de despesa cobertos = 100%. Sem despesa, liquidez plena se há caixa.
+  const liquidez =
+    expense <= 0 ? (available > 0 ? 1 : 0) : clamp01(available / (expense * 3));
+
+  const portfolioValue = PORTFOLIO?.totalMarketValueCents ?? 0;
+  const nwAbs = Math.abs(netWorth());
+  const investBase = Math.max(nwAbs, portfolioValue, 1);
+  const invest = clamp01(portfolioValue / investBase);
+
+  const debtRemaining = DEBTS.reduce((sum, d) => sum + d.outstandingCents, 0);
+  const assets = Math.max(0, available) + Math.max(0, portfolioValue);
+  const dividas =
+    debtRemaining <= 0
+      ? 1
+      : clamp01(1 - debtRemaining / Math.max(assets + debtRemaining, 1));
+
+  const orcam =
+    BUDGETS.length === 0
+      ? 0
+      : BUDGETS.filter((b) => b.remainingCents >= 0).length / BUDGETS.length;
+
+  return [
+    { label: 'POUPANÇA', val: poupanca },
+    { label: 'LIQUIDEZ', val: liquidez },
+    { label: 'INVEST.', val: invest },
+    { label: 'DÍVIDAS', val: dividas },
+    { label: 'ORÇAM.', val: orcam },
+  ];
+}
+
+/** Fatias do donut a partir do resumo do mês. */
+export function categoryDonutSlices(): Array<{ name: string; pct: number; amountCents: number }> {
+  const items = OVERVIEW?.topCategories ?? [];
+  if (items.length === 0 || (OVERVIEW?.expenseCents ?? 0) <= 0) return [];
+
+  return items.slice(0, 5).map((item) => ({
+    name: item.categoryName.slice(0, 10).toUpperCase(),
+    pct: Math.max(0, item.percentOfTotal) / 100,
+    amountCents: item.amountCents,
+  }));
+}
+
+/** Degraus do waterfall do mês corrente. */
+export function monthWaterfallSteps(): Array<{
+  name: string;
+  val: number;
+  type: 'start' | 'plus' | 'minus' | 'total';
+}> {
+  if (!OVERVIEW || OVERVIEW.transactionCount === 0) return [];
+
+  const steps: Array<{ name: string; val: number; type: 'start' | 'plus' | 'minus' | 'total' }> = [
+    { name: 'RECEITA', val: OVERVIEW.incomeCents / 100, type: 'plus' },
+  ];
+
+  let allocated = 0;
+  for (const cat of OVERVIEW.topCategories.slice(0, 4)) {
+    const reais = -Math.abs(cat.amountCents) / 100;
+    allocated += Math.abs(cat.amountCents);
+    steps.push({
+      name: cat.categoryName.slice(0, 8).toUpperCase(),
+      val: reais,
+      type: 'minus',
+    });
+  }
+
+  const rest = OVERVIEW.expenseCents - allocated;
+  if (rest > 0) {
+    steps.push({ name: 'OUTROS', val: -rest / 100, type: 'minus' });
+  }
+
+  steps.push({ name: 'SALDO', val: OVERVIEW.netCents / 100, type: 'total' });
+  return steps;
 }
 
 export function statusLabel(status: TransactionStatus): string {

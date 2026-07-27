@@ -5,11 +5,13 @@ import {
   ACCOUNTS, TRANSACTIONS, BUDGETS, DEBTS, HOLDINGS, RECURRENCES,
   GOALS, RULES, INSIGHTS, CARD_INVOICES, DEBT_PAYMENTS, MONTHLY_FLOW,
   PROJECTION, CATEGORIES,
-  formatMoney, formatDate, getAccountName, getCategoryPath,
+  formatMoney, formatDate, toIsoDate, getAccountName, getCategoryPath,
   getCategoryName, getPayeeName, getTagNames, computeBalance,
   totalAvailableBalance, currentMonthIncome, currentMonthExpense, netWorth,
   statusLabel, statusColorClass, CREDIT_CARDS,
   openingAiMessage, refreshAfterWrite, savingsRate, cardUsage, TODAY,
+  primaryGoalProgressPercent, primaryGoalName, radarHealthMetrics,
+  categoryDonutSlices, monthWaterfallSteps,
   type Transaction, type Budget, type Account, type Debt, type Holding
 } from './data';
 import { BITMAP_ICONS } from './icons';
@@ -64,7 +66,8 @@ export class KakeiboApp {
   private mascotRenderer: PC98MascotRenderer | null = null;
   private isTyping: boolean = false;
   private activeTab: string = 'dashboard';
-  private selectedCategoryDetail: string = 'cat-alimentacao';
+  private selectedCategoryDetail: string = '';
+  private selectedAddCategoryId: string | null = null;
   private journalSearchQuery: string = '';
   private currentFilterKey: string = 'all';
 
@@ -220,16 +223,18 @@ export class KakeiboApp {
   private renderDashboardCharts() {
     setTimeout(() => {
       const radarCanvas = document.getElementById('radar-chart-canvas') as HTMLCanvasElement;
-      if (radarCanvas) PC98ChartSuite.renderRadarChart(radarCanvas);
+      if (radarCanvas) PC98ChartSuite.renderRadarChart(radarCanvas, radarHealthMetrics());
 
       const gaugeCanvas = document.getElementById('gauge-chart-canvas') as HTMLCanvasElement;
-      if (gaugeCanvas) PC98ChartSuite.renderGaugeChart(gaugeCanvas, 74);
+      if (gaugeCanvas) {
+        const pct = primaryGoalProgressPercent();
+        const title = primaryGoalName() ?? 'META ECONOMIA';
+        PC98ChartSuite.renderGaugeChart(gaugeCanvas, pct, title);
+      }
 
-      // Render flow line chart with real data
       const flowCanvas = document.getElementById('flow-chart-canvas') as HTMLCanvasElement;
       if (flowCanvas) PC98ChartSuite.renderFlowLineChart(flowCanvas, MONTHLY_FLOW);
 
-      // Projection chart
       const projCanvas = document.getElementById('projection-chart-canvas') as HTMLCanvasElement;
       if (projCanvas) PC98ChartSuite.renderProjectionChart(projCanvas, PROJECTION);
     }, 50);
@@ -908,14 +913,15 @@ export class KakeiboApp {
 
   private renderCategoryBreakdown() {
     setTimeout(() => {
+      const hasMonthData = (currentMonthIncome() + currentMonthExpense()) > 0;
       const sankeyCanvas = document.getElementById('sankey-chart-canvas') as HTMLCanvasElement;
-      if (sankeyCanvas) PC98ChartSuite.renderSankeyChart(sankeyCanvas);
+      if (sankeyCanvas) PC98ChartSuite.renderSankeyChart(sankeyCanvas, hasMonthData);
 
       const waterfallCanvas = document.getElementById('waterfall-chart-canvas') as HTMLCanvasElement;
-      if (waterfallCanvas) PC98ChartSuite.renderWaterfallChart(waterfallCanvas);
+      if (waterfallCanvas) PC98ChartSuite.renderWaterfallChart(waterfallCanvas, monthWaterfallSteps());
 
       const donutCanvas = document.getElementById('donut-chart-canvas') as HTMLCanvasElement;
-      if (donutCanvas) PC98ChartSuite.renderDonutChart(donutCanvas);
+      if (donutCanvas) PC98ChartSuite.renderDonutChart(donutCanvas, categoryDonutSlices());
     }, 50);
 
     const picker = document.getElementById('cat-detail-picker');
@@ -923,6 +929,9 @@ export class KakeiboApp {
       picker.innerHTML = '';
       // Show parent categories only
       const parentCats = CATEGORIES.filter(c => c.parentId === null && c.kind === 'expense');
+      if (!this.selectedCategoryDetail && parentCats[0]) {
+        this.selectedCategoryDetail = parentCats[0].id;
+      }
       parentCats.forEach(cat => {
         const isSelected = cat.id === this.selectedCategoryDetail;
         const iconSvg = this.getCategoryIcon(cat.name);
@@ -1211,6 +1220,8 @@ export class KakeiboApp {
 
     if (tabId === 'category') {
       setTimeout(() => this.renderCategoryBreakdown(), 50);
+    } else if (tabId === 'add') {
+      this.prepareAddForm();
     } else if (tabId === 'dashboard') {
       this.renderDashboardCharts();
     } else if (tabId === 'investments') {
@@ -1472,6 +1483,100 @@ export class KakeiboApp {
       this.notify(
         `Alteração feita, mas não consegui recarregar a tela: ${error instanceof Error ? error.message : String(error)}`,
         'warn',
+      );
+    }
+  }
+
+  /** Preenche conta/data/categorias do formulário NOVO REGISTRO com dados reais. */
+  private prepareAddForm() {
+    const dateInput = document.getElementById('full-input-date') as HTMLInputElement | null;
+    if (dateInput) dateInput.value = TODAY;
+
+    const accountSelect = document.getElementById('full-input-account') as HTMLSelectElement | null;
+    if (accountSelect) {
+      const previous = accountSelect.value;
+      accountSelect.innerHTML = '';
+      const spendable = ACCOUNTS.filter((a) => !a.isArchived && a.kind !== 'investment');
+      for (const account of spendable) {
+        const opt = document.createElement('option');
+        opt.value = account.id;
+        opt.textContent = account.name;
+        accountSelect.appendChild(opt);
+      }
+      if (previous && spendable.some((a) => a.id === previous)) {
+        accountSelect.value = previous;
+      } else {
+        const checking = spendable.find((a) => a.kind === 'checking');
+        if (checking) accountSelect.value = checking.id;
+      }
+    }
+
+    const grid = document.getElementById('add-cat-tile-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const leafCats = CATEGORIES.filter((c) => c.kind === 'expense' && c.parentId && !c.isArchived).slice(0, 12);
+    if (!this.selectedAddCategoryId && leafCats[0]) {
+      this.selectedAddCategoryId = leafCats[0].id;
+    }
+
+    for (const cat of leafCats) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `pc98-btn text-xs ${cat.id === this.selectedAddCategoryId ? 'btn-primary' : ''}`;
+      btn.style.padding = '8px 6px';
+      btn.textContent = cat.name.toUpperCase();
+      btn.addEventListener('click', () => {
+        pc98Audio.playSelect();
+        this.selectedAddCategoryId = cat.id;
+        this.prepareAddForm();
+      });
+      grid.appendChild(btn);
+    }
+  }
+
+  /** Grava o lançamento do formulário via API (nada de ID fictício local). */
+  private async submitNewTransaction() {
+    pc98Audio.playSelect();
+
+    const amtInput = document.getElementById('full-input-amount') as HTMLInputElement;
+    const memoInput = document.getElementById('full-input-memo') as HTMLInputElement;
+    const dateInput = document.getElementById('full-input-date') as HTMLInputElement;
+    const accountSelect = document.getElementById('full-input-account') as HTMLSelectElement | null;
+
+    const amt = parseFloat(amtInput.value);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      this.notify('Informe um valor maior que zero.', 'warn');
+      return;
+    }
+
+    const accountId =
+      accountSelect?.value ||
+      ACCOUNTS.find((a) => a.kind === 'checking')?.id ||
+      ACCOUNTS.find((a) => a.kind !== 'credit_card')?.id;
+
+    if (!accountId) {
+      this.notify('Crie uma conta antes de lançar.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.createTransaction({
+        accountId,
+        type: 'expense',
+        amountCents: Math.round(amt * 100),
+        date: toIsoDate(dateInput.value || TODAY),
+        description: (memoInput.value || 'Nova despesa').trim(),
+        categoryId: this.selectedAddCategoryId ?? undefined,
+      });
+      (document.getElementById('form-full-add-tx') as HTMLFormElement | null)?.reset();
+      this.prepareAddForm();
+      await this.reloadAfterWrite('Lançamento registrado.', result.changeSetId);
+      this.switchTab('transactions');
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao registrar: ${String(error)}`,
+        'error',
       );
     }
   }
@@ -1916,48 +2021,11 @@ export class KakeiboApp {
       });
     });
 
-    // Full Add Transaction Form
+    // Full Add Transaction Form — grava na API de verdade
     const fullAddForm = document.getElementById('form-full-add-tx') as HTMLFormElement;
     fullAddForm?.addEventListener('submit', (e) => {
       e.preventDefault();
-      pc98Audio.playSelect();
-
-      const amtInput = document.getElementById('full-input-amount') as HTMLInputElement;
-      const memoInput = document.getElementById('full-input-memo') as HTMLInputElement;
-      const dateInput = document.getElementById('full-input-date') as HTMLInputElement;
-
-      const amt = parseFloat(amtInput.value) || 0;
-      const memo = memoInput.value || 'Nova Despesa';
-      const dateStr = dateInput.value || new Date().toISOString().slice(0, 10);
-
-      const newTx: Transaction = {
-        id: `tx-${Date.now()}`,
-        accountId: 'acc-checking',
-        type: 'expense',
-        date: dateStr,
-        amountCents: -Math.round(amt * 100),
-        description: memo,
-        notes: null,
-        categoryId: 'cat-supermercado',
-        payeeId: null,
-        status: 'cleared',
-        transferId: null,
-        hasSplits: false,
-        installmentPlanId: null,
-        installmentNo: null,
-        installmentTotal: null,
-        recurrenceId: null,
-        cardInvoiceId: null,
-        goalId: null,
-        debtId: null,
-        tagIds: [],
-        createdBy: 'user',
-      };
-
-      this.transactions.unshift(newTx);
-      this.renderAll();
-      fullAddForm.reset();
-      this.switchTab('transactions');
+      void this.submitNewTransaction();
     });
 
     // Chat Input (also accepts NL ledger entries — replaces removed top quick-entry bar)

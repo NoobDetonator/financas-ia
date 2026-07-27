@@ -1932,6 +1932,271 @@ body.ai-dock-open .right-ai-sidebar {
   outline: 2px solid var(--c-focus-ring, var(--c-amber));
 }
 
+/* ── Aesthetic 3D plastic card (CONTAS detail) ───────────────────────────── */
+
+.plastic-card-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  margin-bottom: 4px;
+}
+
+.plastic-card-scene {
+  perspective: 900px;
+  width: 100%;
+  max-width: 280px;
+  margin: 0 auto;
+  aspect-ratio: 1.586 / 1;
+}
+
+.plastic-card {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  border: none;
+  padding: 0;
+  background: transparent;
+  cursor: pointer;
+  transform-style: preserve-3d;
+  transition: transform 0.55s cubic-bezier(0.2, 0.8, 0.2, 1);
+  font: inherit;
+  color: inherit;
+}
+
+.plastic-card.is-flipped {
+  transform: rotateY(180deg);
+}
+
+.plastic-card-face {
+  position: absolute;
+  inset: 0;
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  border-radius: 12px;
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  padding: 14px 16px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  overflow: hidden;
+  box-shadow:
+    0 10px 24px rgba(0, 0, 0, 0.35),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  color: #f4f0e8;
+}
+
+.plastic-card-face::before {
+  content: '';
+  position: absolute;
+  inset: -40% -20%;
+  background: linear-gradient(
+    125deg,
+    transparent 40%,
+    rgba(255, 255, 255, 0.14) 48%,
+    transparent 56%
+  );
+  transform: translateX(-30%);
+  transition: transform 0.7s ease;
+  pointer-events: none;
+}
+
+.plastic-card:hover .plastic-card-face::before,
+.plastic-card:focus-visible .plastic-card-face::before {
+  transform: translateX(40%);
+}
+
+.plastic-card-face.back {
+  transform: rotateY(180deg);
+}
+
+.plastic-card-face.front {
+  background:
+    radial-gradient(ellipse at 20% 10%, rgba(255, 255, 255, 0.16), transparent 45%),
+    linear-gradient(145deg, var(--plastic-a, #1e3a5f) 0%, var(--plastic-b, #0d1b2a) 55%, var(--plastic-c, #243b55) 100%);
+}
+
+.plastic-card-face.back {
+  background: linear-gradient(160deg, #1a1a1f 0%, #2a2a32 100%);
+}
+
+.plastic-card[data-network='visa'] {
+  --plastic-a: #1a3a6b;
+  --plastic-b: #0b1f3a;
+  --plastic-c: #2f6fed;
+}
+.plastic-card[data-network='mastercard'] {
+  --plastic-a: #3a1a14;
+  --plastic-b: #1a0c0a;
+  --plastic-c: #c45c2a;
+}
+.plastic-card[data-network='elo'] {
+  --plastic-a: #2a2208;
+  --plastic-b: #12100a;
+  --plastic-c: #d4a017;
+}
+.plastic-card[data-network='amex'] {
+  --plastic-a: #0f3d38;
+  --plastic-b: #071f1c;
+  --plastic-c: #2bbbad;
+}
+.plastic-card[data-network='hipercard'] {
+  --plastic-a: #4a1218;
+  --plastic-b: #1f080c;
+  --plastic-c: #e23b4a;
+}
+.plastic-card[data-network='other'] {
+  --plastic-a: #2a3340;
+  --plastic-b: #12161c;
+  --plastic-c: #566c86;
+}
+
+.plastic-card.is-virtual .plastic-card-face.front {
+  border-style: dashed;
+  border-color: rgba(120, 220, 255, 0.45);
+}
+
+.plastic-card-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.plastic-card-chip {
+  width: 34px;
+  height: 26px;
+  border-radius: 5px;
+  background:
+    linear-gradient(135deg, #d7c089 0%, #a8894a 40%, #efe0b0 55%, #8c7038 100%);
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.25);
+  position: relative;
+}
+
+.plastic-card-chip::after {
+  content: '';
+  position: absolute;
+  inset: 4px;
+  border: 1px solid rgba(0, 0, 0, 0.2);
+  border-radius: 2px;
+  background:
+    linear-gradient(#0000 45%, rgba(0, 0, 0, 0.2) 45% 55%, #0000 55%),
+    linear-gradient(90deg, #0000 45%, rgba(0, 0, 0, 0.2) 45% 55%, #0000 55%);
+}
+
+.plastic-card-network {
+  font-family: var(--font-display, var(--font-primary));
+  font-size: 13px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  font-weight: 700;
+  opacity: 0.95;
+}
+
+.plastic-card-pan {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-micro, monospace);
+  font-size: 13px;
+  letter-spacing: 0.18em;
+  opacity: 0.85;
+}
+
+.plastic-card-bottom {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 8px;
+  position: relative;
+  z-index: 1;
+}
+
+.plastic-card-label {
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  max-width: 70%;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+.plastic-card-meta {
+  font-family: var(--font-micro, monospace);
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  text-align: right;
+}
+
+.plastic-card-stripe {
+  height: 34px;
+  margin: 8px -16px 12px;
+  background: repeating-linear-gradient(
+    90deg,
+    #0a0a0c 0 3px,
+    #1c1c22 3px 6px
+  );
+}
+
+.plastic-card-cvv-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: #efe8d8;
+  color: #1a1a1a;
+  padding: 6px 8px;
+  border-radius: 2px;
+  font-family: var(--font-micro, monospace);
+  font-size: 11px;
+}
+
+.plastic-card-cvv-row span:last-child {
+  margin-left: auto;
+  letter-spacing: 0.2em;
+}
+
+.plastic-card-back-note {
+  font-size: 9px;
+  line-height: 1.4;
+  opacity: 0.7;
+  position: relative;
+  z-index: 1;
+}
+
+.plastic-card-hint {
+  text-align: center;
+  color: var(--c-grey-blue);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .plastic-card {
+    transition: none;
+  }
+  .plastic-card-face::before {
+    display: none;
+  }
+}
+
+@media (max-width: 800px) {
+  .plastic-card-scene {
+    max-width: 100%;
+  }
+}
+
+.account-debit-visual,
+.account-credit-visual {
+  display: none;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-debit-visual.is-open,
+.account-credit-visual.is-open {
+  display: flex;
+}
+
 @media (max-width: 800px) {
   .accounts-cards-grid { grid-template-columns: 1fr; }
 }

@@ -188,6 +188,7 @@ export const auth = {
 // ── Tipos do domínio (espelham os DTOs do backend) ──────────────────────────
 
 export type AccountKind = 'checking' | 'savings' | 'cash' | 'wallet' | 'investment' | 'credit_card';
+export type CardNetwork = 'visa' | 'mastercard' | 'elo' | 'amex' | 'hipercard' | 'other';
 export type TransactionType = 'expense' | 'income' | 'transfer';
 export type TransactionStatus = 'scheduled' | 'pending' | 'cleared' | 'reconciled';
 export type CategoryKind = 'expense' | 'income';
@@ -207,6 +208,8 @@ export interface CreditCard {
   dueDay: number;
   paymentAccountId: string | null;
   isVirtual: boolean;
+  network: CardNetwork;
+  holderLabel: string | null;
   notes: string | null;
 }
 
@@ -224,6 +227,8 @@ export interface Account {
   aliases: string[] | null;
   hasDebitCard: boolean;
   debitIsVirtual: boolean;
+  debitCardNetwork: CardNetwork | null;
+  debitCardHolder: string | null;
   isArchived: boolean;
   sortOrder: number;
   createdAt: string;

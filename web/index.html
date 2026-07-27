@@ -1031,6 +1031,23 @@
               <input type="checkbox" id="account-input-debit-virtual" name="debitIsVirtual" />
               Débito virtual (sem plástico)
             </label>
+            <div id="account-debit-visual" class="account-debit-visual">
+              <div class="pc98-form-group">
+                <label class="micro-label" for="account-input-debit-network">BANDEIRA (ESTÉTICA)</label>
+                <select id="account-input-debit-network" name="debitCardNetwork" class="pc98-input">
+                  <option value="mastercard">Mastercard</option>
+                  <option value="visa">Visa</option>
+                  <option value="elo">Elo</option>
+                  <option value="amex">Amex</option>
+                  <option value="hipercard">Hipercard</option>
+                  <option value="other">Outro</option>
+                </select>
+              </div>
+              <div class="pc98-form-group">
+                <label class="micro-label" for="account-input-debit-holder">NOME NO CARTÃO (OPCIONAL)</label>
+                <input type="text" id="account-input-debit-holder" name="debitCardHolder" class="pc98-input" maxlength="40" autocomplete="off" placeholder="Pode ser fictício" />
+              </div>
+            </div>
           </div>
 
           <div id="account-credit-section" class="pc98-well hidden" style="display: none; flex-direction: column; gap: 8px;">
@@ -1059,6 +1076,21 @@
               <input type="checkbox" id="account-input-is-virtual" name="isVirtual" />
               Cartão virtual
             </label>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="account-input-credit-network">BANDEIRA (ESTÉTICA)</label>
+              <select id="account-input-credit-network" name="cardNetwork" class="pc98-input">
+                <option value="mastercard">Mastercard</option>
+                <option value="visa">Visa</option>
+                <option value="elo">Elo</option>
+                <option value="amex">Amex</option>
+                <option value="hipercard">Hipercard</option>
+                <option value="other">Outro</option>
+              </select>
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="account-input-credit-holder">NOME NO CARTÃO (OPCIONAL)</label>
+              <input type="text" id="account-input-credit-holder" name="cardHolder" class="pc98-input" maxlength="40" autocomplete="off" placeholder="Pode ser fictício" />
+            </div>
           </div>
 
           <div style="display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap;">

@@ -45,12 +45,14 @@ import {
   type Transaction as ApiTransaction,
   type TransactionStatus,
   type CommitmentSummary,
+  type CardNetwork,
 } from '../api/client';
 
 // ── Vocabulário (reexportado para o app.ts) ─────────────────────────────────
 
 export type {
   AccountKind,
+  CardNetwork,
   TransactionType,
   TransactionStatus,
   CategoryKind,
@@ -94,6 +96,8 @@ export interface Account {
   aliases: string[];
   hasDebitCard: boolean;
   debitIsVirtual: boolean;
+  debitCardNetwork: CardNetwork | null;
+  debitCardHolder: string | null;
   isArchived: boolean;
   sortOrder: number;
 }
@@ -105,6 +109,8 @@ export interface CreditCard {
   dueDay: number;
   paymentAccountId: string;
   isVirtual: boolean;
+  network: CardNetwork;
+  holderLabel: string | null;
 }
 
 /** Transação com os campos derivados que a interface exibe. */
@@ -226,6 +232,8 @@ function adaptAccount(account: ApiAccount): Account {
     aliases: account.aliases ?? [],
     hasDebitCard: account.hasDebitCard ?? false,
     debitIsVirtual: account.debitIsVirtual ?? false,
+    debitCardNetwork: account.debitCardNetwork ?? null,
+    debitCardHolder: account.debitCardHolder ?? null,
     isArchived: account.isArchived,
     sortOrder: account.sortOrder,
   };
@@ -432,6 +440,8 @@ export async function loadAll(): Promise<LoadReport> {
           dueDay: a.card.dueDay,
           paymentAccountId: a.card.paymentAccountId ?? '',
           isVirtual: a.card.isVirtual ?? false,
+          network: a.card.network ?? 'other',
+          holderLabel: a.card.holderLabel ?? null,
         }));
     }),
     settle('saldos', api.balances(), (rows) => {
@@ -559,6 +569,8 @@ export async function refreshAfterWrite(): Promise<void> {
       dueDay: a.card.dueDay,
       paymentAccountId: a.card.paymentAccountId ?? '',
       isVirtual: a.card.isVirtual ?? false,
+      network: a.card.network ?? 'other',
+      holderLabel: a.card.holderLabel ?? null,
     }));
 }
 

@@ -44,10 +44,71 @@ function accountKindLabel(kind: string): string {
   return ACCOUNT_KIND_LABELS[kind] ?? kind.toUpperCase();
 }
 
+const CARD_NETWORK_LABELS: Record<string, string> = {
+  visa: 'VISA',
+  mastercard: 'Mastercard',
+  elo: 'Elo',
+  amex: 'Amex',
+  hipercard: 'Hipercard',
+  other: 'Cartão',
+};
+
+function cardNetworkLabel(network: string | null | undefined): string {
+  return CARD_NETWORK_LABELS[network ?? 'other'] ?? 'Cartão';
+}
+
 function parseReaisToCents(raw: string): number {
   const n = parseFloat(raw.replace(',', '.').trim());
   if (!Number.isFinite(n)) return 0;
   return Math.round(n * 100);
+}
+
+/** Cartão plástico 3D estético — sem dados reais; só nome/bandeira/virtual. */
+function buildPlasticCardHtml(options: {
+  name: string;
+  holder?: string | null;
+  network?: string | null;
+  isVirtual?: boolean;
+  kindLabel: string;
+  idSuffix?: string;
+}): string {
+  const network = options.network || 'other';
+  const holder = (options.holder || options.name).trim() || options.name;
+  const suffix = options.idSuffix ? `-${escapeHtml(options.idSuffix)}` : '';
+  const virtualClass = options.isVirtual ? ' is-virtual' : '';
+  return `
+    <div class="plastic-card-stage">
+      <div class="plastic-card-scene">
+        <button type="button" class="plastic-card${virtualClass}" data-network="${escapeHtml(network)}" id="plastic-card${suffix}" aria-label="Virar cartão ${escapeHtml(options.name)}">
+          <div class="plastic-card-face front">
+            <div class="plastic-card-top">
+              <div class="plastic-card-chip" aria-hidden="true"></div>
+              <div class="plastic-card-network">${escapeHtml(cardNetworkLabel(network))}</div>
+            </div>
+            <div class="plastic-card-pan" aria-hidden="true">•••• •••• •••• ••••</div>
+            <div class="plastic-card-bottom">
+              <div class="plastic-card-label">${escapeHtml(holder)}</div>
+              <div class="plastic-card-meta">
+                ${escapeHtml(options.kindLabel)}
+                ${options.isVirtual ? '<br/>VIRTUAL' : ''}
+              </div>
+            </div>
+          </div>
+          <div class="plastic-card-face back">
+            <div class="plastic-card-stripe" aria-hidden="true"></div>
+            <div class="plastic-card-cvv-row">
+              <span>ASSINATURA</span>
+              <span aria-hidden="true">CVV •••</span>
+            </div>
+            <div class="plastic-card-back-note">
+              Modelo estético KAKEIBO — sem número real. Clique para virar.
+            </div>
+          </div>
+        </button>
+      </div>
+      <div class="micro-label plastic-card-hint">[CLIQUE PARA VIRAR] frente / verso</div>
+    </div>
+  `;
 }
 
 
@@ -745,14 +806,24 @@ export class KakeiboApp {
         : null;
 
     let specifics = '';
+    let plastic = '';
     if (isCredit && creditCard) {
       specifics = `
         <div class="micro-label" style="color: var(--c-grey-blue);">LIMITE: ${formatMoney(creditCard.limitCents)}</div>
         <div class="micro-label" style="color: var(--c-grey-blue);">FECHA DIA ${creditCard.closingDay} · VENCE DIA ${creditCard.dueDay}</div>
         ${usage ? `<div class="micro-label" style="color: var(--c-amber);">USO: ${usage.usedPercent}% (${formatMoney(usage.usedCents)})</div>` : ''}
+        <div class="micro-label" style="color: var(--c-pale-cyan);">BANDEIRA: ${escapeHtml(cardNetworkLabel(creditCard.network))}</div>
         ${creditCard.isVirtual ? `<div class="micro-label txt-cyan">[VIRTUAL]</div>` : ''}
         ${paymentName ? `<div class="micro-label" style="color: var(--c-grey-blue);">PAGA COM: ${escapeHtml(paymentName)}</div>` : ''}
       `;
+      plastic = buildPlasticCardHtml({
+        name: acc.name,
+        holder: creditCard.holderLabel,
+        network: creditCard.network,
+        isVirtual: creditCard.isVirtual,
+        kindLabel: 'CRÉDITO',
+        idSuffix: acc.id,
+      });
     } else {
       const debitBits: string[] = [];
       if (acc.hasDebitCard) debitBits.push('[DÉBITO]');
@@ -760,11 +831,27 @@ export class KakeiboApp {
       specifics = `
         <div class="micro-label" style="color: var(--c-grey-blue);">SALDO ABERTURA: ${formatMoney(acc.openingBalanceCents)}</div>
         ${debitBits.length ? `<div class="micro-label txt-amber">${debitBits.join(' ')}</div>` : ''}
+        ${
+          acc.hasDebitCard
+            ? `<div class="micro-label" style="color: var(--c-pale-cyan);">BANDEIRA: ${escapeHtml(cardNetworkLabel(acc.debitCardNetwork))}</div>`
+            : ''
+        }
       `;
+      if (acc.hasDebitCard) {
+        plastic = buildPlasticCardHtml({
+          name: acc.name,
+          holder: acc.debitCardHolder,
+          network: acc.debitCardNetwork,
+          isVirtual: acc.debitIsVirtual,
+          kindLabel: 'DÉBITO',
+          idSuffix: acc.id,
+        });
+      }
     }
 
     panel.innerHTML = `
       <div style="display: flex; flex-direction: column; gap: 8px;">
+        ${plastic}
         <div style="font-weight: bold; color: var(--c-bone-white); font-size: 15px;">${escapeHtml(acc.name)}</div>
         <div class="micro-label" style="color: var(--c-pale-cyan);">[${escapeHtml(accountKindLabel(acc.kind))}]</div>
         ${acc.institution ? `<div class="micro-label" style="color: var(--c-grey-blue);">${escapeHtml(acc.institution)}</div>` : ''}
@@ -785,6 +872,12 @@ export class KakeiboApp {
         </div>
       </div>
     `;
+
+    panel.querySelector('.plastic-card')?.addEventListener('click', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      (e.currentTarget as HTMLElement).classList.toggle('is-flipped');
+    });
 
     document.getElementById('btn-edit-account')?.addEventListener('click', () => {
       pc98Audio.playSelect();
@@ -809,6 +902,8 @@ export class KakeiboApp {
     const debitSection = document.getElementById('account-debit-section');
     const creditSection = document.getElementById('account-credit-section');
     const openingGroup = document.getElementById('account-opening-balance-group');
+    const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
+    const debitVisual = document.getElementById('account-debit-visual');
     if (!kindSelect) return;
     const isCredit = kindSelect.value === 'credit_card';
     if (debitSection) debitSection.style.display = isCredit ? 'none' : 'flex';
@@ -817,6 +912,7 @@ export class KakeiboApp {
       creditSection.classList.toggle('hidden', !isCredit);
     }
     if (openingGroup) openingGroup.style.display = isCredit ? 'none' : 'flex';
+    debitVisual?.classList.toggle('is-open', !isCredit && !!hasDebit?.checked);
   }
 
   private populatePaymentAccountSelect(excludeId?: string) {
@@ -848,10 +944,14 @@ export class KakeiboApp {
     const openingInput = document.getElementById('account-input-opening-balance') as HTMLInputElement | null;
     const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
     const debitVirtual = document.getElementById('account-input-debit-virtual') as HTMLInputElement | null;
+    const debitNetwork = document.getElementById('account-input-debit-network') as HTMLSelectElement | null;
+    const debitHolder = document.getElementById('account-input-debit-holder') as HTMLInputElement | null;
     const limitInput = document.getElementById('account-input-limit') as HTMLInputElement | null;
     const closingInput = document.getElementById('account-input-closing-day') as HTMLInputElement | null;
     const dueInput = document.getElementById('account-input-due-day') as HTMLInputElement | null;
     const isVirtual = document.getElementById('account-input-is-virtual') as HTMLInputElement | null;
+    const creditNetwork = document.getElementById('account-input-credit-network') as HTMLSelectElement | null;
+    const creditHolder = document.getElementById('account-input-credit-holder') as HTMLInputElement | null;
     const paymentSelect = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
 
     if (title) title.textContent = mode === 'create' ? 'NOVA CONTA' : 'EDITAR CONTA';
@@ -867,6 +967,8 @@ export class KakeiboApp {
       if (openingInput) openingInput.value = (account.openingBalanceCents / 100).toFixed(2);
       if (hasDebit) hasDebit.checked = account.hasDebitCard;
       if (debitVirtual) debitVirtual.checked = account.debitIsVirtual;
+      if (debitNetwork) debitNetwork.value = account.debitCardNetwork || 'mastercard';
+      if (debitHolder) debitHolder.value = account.debitCardHolder || '';
       const card = CREDIT_CARDS.find((c) => c.accountId === account.id);
       if (card) {
         if (limitInput) limitInput.value = (card.limitCents / 100).toFixed(2);
@@ -874,6 +976,8 @@ export class KakeiboApp {
         if (dueInput) dueInput.value = String(card.dueDay);
         if (isVirtual) isVirtual.checked = card.isVirtual;
         if (paymentSelect) paymentSelect.value = card.paymentAccountId || '';
+        if (creditNetwork) creditNetwork.value = card.network || 'mastercard';
+        if (creditHolder) creditHolder.value = card.holderLabel || '';
       }
     } else {
       if (nameInput) nameInput.value = '';
@@ -885,10 +989,14 @@ export class KakeiboApp {
       if (openingInput) openingInput.value = '0';
       if (hasDebit) hasDebit.checked = false;
       if (debitVirtual) debitVirtual.checked = false;
+      if (debitNetwork) debitNetwork.value = 'mastercard';
+      if (debitHolder) debitHolder.value = '';
       if (limitInput) limitInput.value = '0';
       if (closingInput) closingInput.value = '1';
       if (dueInput) dueInput.value = '10';
       if (isVirtual) isVirtual.checked = false;
+      if (creditNetwork) creditNetwork.value = 'mastercard';
+      if (creditHolder) creditHolder.value = '';
       if (paymentSelect) paymentSelect.value = '';
     }
 
@@ -911,10 +1019,14 @@ export class KakeiboApp {
     const openingInput = document.getElementById('account-input-opening-balance') as HTMLInputElement | null;
     const hasDebit = document.getElementById('account-input-has-debit') as HTMLInputElement | null;
     const debitVirtual = document.getElementById('account-input-debit-virtual') as HTMLInputElement | null;
+    const debitNetwork = document.getElementById('account-input-debit-network') as HTMLSelectElement | null;
+    const debitHolder = document.getElementById('account-input-debit-holder') as HTMLInputElement | null;
     const limitInput = document.getElementById('account-input-limit') as HTMLInputElement | null;
     const closingInput = document.getElementById('account-input-closing-day') as HTMLInputElement | null;
     const dueInput = document.getElementById('account-input-due-day') as HTMLInputElement | null;
     const isVirtual = document.getElementById('account-input-is-virtual') as HTMLInputElement | null;
+    const creditNetwork = document.getElementById('account-input-credit-network') as HTMLSelectElement | null;
+    const creditHolder = document.getElementById('account-input-credit-holder') as HTMLInputElement | null;
     const paymentSelect = document.getElementById('account-input-payment-account') as HTMLSelectElement | null;
 
     const name = nameInput?.value.trim() ?? '';
@@ -926,6 +1038,8 @@ export class KakeiboApp {
     const kind = (kindSelect?.value ?? 'checking') as Account['kind'];
     const institution = institutionInput?.value.trim() || undefined;
     const isCredit = kind === 'credit_card';
+    const debitHolderValue = debitHolder?.value.trim() || undefined;
+    const creditHolderValue = creditHolder?.value.trim() || undefined;
 
     try {
       if (this.accountFormMode === 'create') {
@@ -943,12 +1057,18 @@ export class KakeiboApp {
             closingDay,
             dueDay,
             isVirtual: isVirtual?.checked ?? false,
+            network: creditNetwork?.value || 'other',
+            ...(creditHolderValue ? { holderLabel: creditHolderValue } : {}),
             ...(paymentSelect?.value ? { paymentAccountId: paymentSelect.value } : {}),
           };
         } else {
           body.openingBalanceCents = parseReaisToCents(openingInput?.value || '0');
           body.hasDebitCard = hasDebit?.checked ?? false;
           body.debitIsVirtual = (hasDebit?.checked && debitVirtual?.checked) ?? false;
+          if (hasDebit?.checked) {
+            body.debitCardNetwork = debitNetwork?.value || 'other';
+            if (debitHolderValue) body.debitCardHolder = debitHolderValue;
+          }
         }
         const result = await api.createAccount(body);
         this.closeAccountForm();
@@ -965,12 +1085,16 @@ export class KakeiboApp {
             closingDay: Number(closingInput?.value || 1),
             dueDay: Number(dueInput?.value || 10),
             isVirtual: isVirtual?.checked ?? false,
+            network: creditNetwork?.value || 'other',
+            holderLabel: creditHolderValue || null,
             paymentAccountId: paymentSelect?.value || null,
           };
         } else {
           body.openingBalanceCents = parseReaisToCents(openingInput?.value || '0');
           body.hasDebitCard = hasDebit?.checked ?? false;
           body.debitIsVirtual = (hasDebit?.checked && debitVirtual?.checked) ?? false;
+          body.debitCardNetwork = hasDebit?.checked ? (debitNetwork?.value || 'other') : null;
+          body.debitCardHolder = hasDebit?.checked ? (debitHolderValue || null) : null;
         }
         const result = await api.updateAccount(this.editingAccountId, body);
         this.closeAccountForm();
@@ -2753,6 +2877,9 @@ export class KakeiboApp {
     });
 
     document.getElementById('account-input-kind')?.addEventListener('change', () => {
+      this.syncAccountFormSections();
+    });
+    document.getElementById('account-input-has-debit')?.addEventListener('change', () => {
       this.syncAccountFormSections();
     });
     document.getElementById('btn-close-account-form')?.addEventListener('click', () => {

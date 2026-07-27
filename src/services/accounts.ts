@@ -17,8 +17,11 @@ import { today } from '../core/clock.js';
 import { slugify } from '../core/ids.js';
 import { withMutate, readDb, type WriteOptions, type WriteResult } from '../mutate/write.js';
 import { accountKindSchema, centsSchema, colorSchema, dayOfMonthSchema, idSchema, isoDateSchema } from './schemas.js';
+import { CARD_NETWORKS } from '../db/schema.js';
 
 // ── Schemas ─────────────────────────────────────────────────────────────────
+
+export const cardNetworkSchema = z.enum(CARD_NETWORKS);
 
 export const createAccountSchema = z.object({
   name: z.string().min(1).max(80),
@@ -35,6 +38,8 @@ export const createAccountSchema = z.object({
   /** Cartão de débito vinculado (somente contas não-crédito). */
   hasDebitCard: z.boolean().default(false),
   debitIsVirtual: z.boolean().default(false),
+  debitCardNetwork: cardNetworkSchema.optional(),
+  debitCardHolder: z.string().min(1).max(40).optional(),
   /** Obrigatório quando `kind` é `credit_card`. */
   card: z
     .object({
@@ -43,6 +48,8 @@ export const createAccountSchema = z.object({
       dueDay: dayOfMonthSchema,
       paymentAccountId: idSchema.optional(),
       isVirtual: z.boolean().default(false),
+      network: cardNetworkSchema.default('other'),
+      holderLabel: z.string().min(1).max(40).optional(),
     })
     .optional(),
 });
@@ -53,6 +60,8 @@ export const updateAccountSchema = createAccountSchema
   .omit({ kind: true, card: true })
   .partial()
   .extend({
+    debitCardNetwork: cardNetworkSchema.nullable().optional(),
+    debitCardHolder: z.string().min(1).max(40).nullable().optional(),
     card: z
       .object({
         limitCents: centsSchema.optional(),
@@ -60,6 +69,8 @@ export const updateAccountSchema = createAccountSchema
         dueDay: dayOfMonthSchema.optional(),
         paymentAccountId: idSchema.nullable().optional(),
         isVirtual: z.boolean().optional(),
+        network: cardNetworkSchema.optional(),
+        holderLabel: z.string().min(1).max(40).nullable().optional(),
       })
       .optional(),
   });
@@ -179,6 +190,9 @@ export function createAccount(
   if (parsed.debitIsVirtual && !parsed.hasDebitCard) {
     throw ruleViolation('Marque hasDebitCard para definir débito virtual.');
   }
+  if ((parsed.debitCardNetwork || parsed.debitCardHolder) && !parsed.hasDebitCard) {
+    throw ruleViolation('Marque hasDebitCard para definir visual do cartão de débito.');
+  }
   if (parsed.card?.paymentAccountId) {
     getAccount(parsed.card.paymentAccountId, db);
   }
@@ -200,6 +214,8 @@ export function createAccount(
         aliases: parsed.aliases ?? null,
         hasDebitCard: parsed.hasDebitCard,
         debitIsVirtual: parsed.hasDebitCard ? parsed.debitIsVirtual : false,
+        debitCardNetwork: parsed.hasDebitCard ? (parsed.debitCardNetwork ?? null) : null,
+        debitCardHolder: parsed.hasDebitCard ? (parsed.debitCardHolder ?? null) : null,
       });
 
       let card: CreditCard | null = null;
@@ -211,6 +227,8 @@ export function createAccount(
           dueDay: parsed.card.dueDay,
           paymentAccountId: parsed.card.paymentAccountId ?? null,
           isVirtual: parsed.card.isVirtual,
+          network: parsed.card.network,
+          holderLabel: parsed.card.holderLabel ?? null,
         });
       }
 
@@ -248,6 +266,8 @@ export function updateAccount(
       const { card: cardPatch, ...accountPatch } = parsed;
       if (accountPatch.hasDebitCard === false) {
         accountPatch.debitIsVirtual = false;
+        accountPatch.debitCardNetwork = null;
+        accountPatch.debitCardHolder = null;
       }
 
       const account =

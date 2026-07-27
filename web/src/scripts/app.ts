@@ -4,12 +4,12 @@ import { PC98ChartSuite } from './charts';
 import {
   ACCOUNTS, TRANSACTIONS, BUDGETS, DEBTS, HOLDINGS, RECURRENCES,
   GOALS, RULES, INSIGHTS, CARD_INVOICES, DEBT_PAYMENTS, MONTHLY_FLOW,
-  PROJECTION, CATEGORIES,
+  PROJECTION, CATEGORIES, IMPORT_BATCHES, PORTFOLIO,
   formatMoney, formatDate, toIsoDate, getAccountName, getCategoryPath,
   getCategoryName, getPayeeName, getTagNames, computeBalance,
   totalAvailableBalance, currentMonthIncome, currentMonthExpense, netWorth,
   statusLabel, statusColorClass, CREDIT_CARDS,
-  openingAiMessage, refreshAfterWrite, savingsRate, cardUsage, TODAY,
+  openingAiMessage, refreshAfterWrite, cardUsage, TODAY,
   primaryGoalProgressPercent, primaryGoalName, radarHealthMetrics,
   categoryDonutSlices, monthWaterfallSteps,
   type Transaction, type Budget, type Account, type Debt, type Holding
@@ -70,6 +70,8 @@ export class KakeiboApp {
   private selectedAddCategoryId: string | null = null;
   private journalSearchQuery: string = '';
   private currentFilterKey: string = 'all';
+  private resizeTimer: number | null = null;
+  private aiRiskReject: (() => void) | null = null;
 
   // USER PROFILE STATE & AVATAR RENDERERS
   private userName: string = 'Allan';
@@ -86,7 +88,10 @@ export class KakeiboApp {
     this.initClock();
     this.renderAll();
     this.initEvents();
-    window.addEventListener('resize', () => this.rerenderActiveCharts());
+    window.addEventListener('resize', () => {
+      if (this.resizeTimer) window.clearTimeout(this.resizeTimer);
+      this.resizeTimer = window.setTimeout(() => this.rerenderActiveCharts(), 150);
+    });
   }
 
   private initTheme() {
@@ -185,6 +190,7 @@ export class KakeiboApp {
     this.renderRecurrences();
     this.renderGoals();
     this.renderRules();
+    this.renderImportHistory();
     this.renderUpcomingBills();
     this.renderChatGreeting();
     this.triggerAiInsight(this.currentAiIndex);
@@ -399,6 +405,10 @@ export class KakeiboApp {
     if (!grid) return;
     grid.innerHTML = '';
 
+    if (ACCOUNTS.length === 0) {
+      grid.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA CONTA — USE [+ NOVA CONTA]</div>`;
+    }
+
     ACCOUNTS.forEach(acc => {
       const isCredit = acc.kind === 'credit_card';
       const balance = computeBalance(acc.id);
@@ -445,9 +455,13 @@ export class KakeiboApp {
     const invoicesContainer = document.getElementById('invoices-container');
     if (invoicesContainer) {
       invoicesContainer.innerHTML = '';
+      if (CARD_INVOICES.length === 0) {
+        invoicesContainer.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 8px;">SEM FATURAS ABERTAS</div>`;
+      }
       CARD_INVOICES.forEach(inv => {
         const statusClass = inv.status === 'overdue' ? 'txt-pink' : inv.status === 'open' ? 'txt-amber' : 'txt-green';
         const statusText = inv.status === 'overdue' ? 'VENCIDA' : inv.status === 'open' ? 'ABERTA' : 'PAGA';
+        const canPay = inv.status === 'open' || inv.status === 'overdue';
         const el = document.createElement('div');
         el.className = 'pc98-well';
         el.style.padding = '8px';
@@ -458,7 +472,12 @@ export class KakeiboApp {
           </div>
           <div class="num-currency ${statusClass}" style="font-size: var(--fs-md);">${formatMoney(inv.totalCents)}</div>
           <div class="micro-label" style="color: var(--c-grey-blue);">Vencimento: ${formatDate(inv.dueDate)}</div>
+          ${canPay ? `<button type="button" class="pc98-btn btn-primary btn-pay-invoice-row" data-invoice-id="${escapeHtml(inv.id)}" style="margin-top: 6px; padding: 4px 10px; font-size: 11px;">[PAGAR]</button>` : ''}
         `;
+        const payBtn = el.querySelector('.btn-pay-invoice-row') as HTMLButtonElement | null;
+        payBtn?.addEventListener('click', () => {
+          void this.payInvoiceById(inv.id);
+        });
         invoicesContainer.appendChild(el);
       });
     }
@@ -553,6 +572,14 @@ export class KakeiboApp {
     let totalMarketValue = 0;
     let totalGain = 0;
 
+    if (HOLDINGS.length === 0) {
+      html += `
+        <tr>
+          <td colspan="7" style="padding: 16px; text-align: center;" class="micro-label">NENHUM ATIVO NA CARTEIRA</td>
+        </tr>
+      `;
+    }
+
     HOLDINGS.forEach(h => {
       const returnClass = (h.gainPercent ?? 0) >= 0 ? 'txt-green' : 'txt-pink';
       totalMarketValue += h.marketValueCents ?? h.totalCostCents;
@@ -583,6 +610,19 @@ export class KakeiboApp {
 
     const consolidatedEl = document.getElementById('val-consolidated-portfolio');
     if (consolidatedEl) consolidatedEl.textContent = formatMoney(totalMarketValue);
+
+    const retEl = document.getElementById('val-portfolio-return');
+    if (retEl) {
+      const pct = PORTFOLIO?.totalGainPercent;
+      if (pct == null || HOLDINGS.length === 0) {
+        retEl.textContent = 'RENTABILIDADE: —';
+        retEl.className = 'micro-label';
+      } else {
+        const sign = pct >= 0 ? '+' : '';
+        retEl.textContent = `RENTABILIDADE: ${sign}${pct.toFixed(1)}%`;
+        retEl.className = `micro-label ${pct >= 0 ? 'txt-green' : 'txt-pink'}`;
+      }
+    }
   }
 
   // ── JOURNAL — uses new Transaction model with status/tags/payees ──────────
@@ -766,6 +806,10 @@ export class KakeiboApp {
     if (!container) return;
     container.innerHTML = '';
 
+    if (RECURRENCES.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA RECORRÊNCIA</div>`;
+    }
+
     RECURRENCES.forEach(rec => {
       const amount = rec.amountCents ? formatMoney(rec.amountCents) : `~${formatMoney(rec.estimatedCents ?? 0)}`;
       const typeClass = rec.type === 'income' ? 'txt-green' : 'txt-pink';
@@ -795,6 +839,33 @@ export class KakeiboApp {
 
       container.appendChild(el);
     });
+
+    const active = RECURRENCES.filter((r) => r.isActive);
+    let incomeCents = 0;
+    let expenseCents = 0;
+    for (const rec of active) {
+      const cents = rec.amountCents ?? rec.estimatedCents ?? 0;
+      if (rec.type === 'income') incomeCents += cents;
+      else if (rec.type === 'expense') expenseCents += cents;
+    }
+    const balanceCents = incomeCents - expenseCents;
+
+    const incomeEl = document.getElementById('rec-sum-income');
+    const expenseEl = document.getElementById('rec-sum-expense');
+    const balanceEl = document.getElementById('rec-sum-balance');
+    if (incomeEl) {
+      incomeEl.textContent = `+${formatMoney(incomeCents)}`;
+      incomeEl.className = 'num-currency txt-green';
+    }
+    if (expenseEl) {
+      expenseEl.textContent = `-${formatMoney(expenseCents)}`;
+      expenseEl.className = 'num-currency txt-pink';
+    }
+    if (balanceEl) {
+      const sign = balanceCents >= 0 ? '+' : '';
+      balanceEl.textContent = `${sign}${formatMoney(balanceCents)}`;
+      balanceEl.className = `num-currency ${balanceCents >= 0 ? 'txt-green' : 'txt-pink'}`;
+    }
   }
 
   // ── GOALS — new view ──────────────────────────────────────────────────────
@@ -803,6 +874,10 @@ export class KakeiboApp {
     const container = document.getElementById('goals-list');
     if (!container) return;
     container.innerHTML = '';
+
+    if (GOALS.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA META</div>`;
+    }
 
     GOALS.forEach(goal => {
       const pct = Math.min(100, Math.round(goal.progressPercent));
@@ -848,6 +923,42 @@ export class KakeiboApp {
 
       container.appendChild(el);
     });
+
+    const totalSaved = GOALS.reduce((sum, g) => sum + (g.savedCents ?? 0), 0);
+    const totalTarget = GOALS.reduce((sum, g) => sum + (g.targetCents ?? 0), 0);
+    const globalPct = totalTarget > 0 ? Math.min(100, Math.round((totalSaved / totalTarget) * 100)) : 0;
+
+    const savedEl = document.getElementById('goals-sum-saved');
+    const targetEl = document.getElementById('goals-sum-target');
+    const progressEl = document.getElementById('goals-sum-progress');
+    if (savedEl) savedEl.textContent = formatMoney(totalSaved);
+    if (targetEl) targetEl.textContent = formatMoney(totalTarget);
+    if (progressEl) progressEl.textContent = `${globalPct}%`;
+
+    const alertBox = document.getElementById('goals-alert-box');
+    if (alertBox) {
+      const active = GOALS.filter((g) => g.status === 'active');
+      if (active.length === 0) {
+        alertBox.innerHTML = `
+          <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+          Nenhuma meta ativa. Crie a primeira com [+ NOVA META].
+        `;
+      } else {
+        const primary = active[0]!;
+        if (primary.requiredMonthlyCents != null && primary.requiredMonthlyCents > 0) {
+          alertBox.innerHTML = `
+            <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+            Meta <strong>${escapeHtml(primary.name)}</strong>: aporte necessário de
+            <span class="num-currency txt-amber">${formatMoney(primary.requiredMonthlyCents)}</span>/mês para atingir o prazo.
+          `;
+        } else {
+          alertBox.innerHTML = `
+            <div class="micro-label" style="color: var(--c-sky); margin-bottom: 4px;">STATUS:</div>
+            Meta <strong>${escapeHtml(primary.name)}</strong> no ritmo — sem aporte mensal adicional necessário.
+          `;
+        }
+      }
+    }
   }
 
   // ── RULES — new view ──────────────────────────────────────────────────────
@@ -856,6 +967,11 @@ export class KakeiboApp {
     const container = document.getElementById('rules-list');
     if (!container) return;
     container.innerHTML = '';
+
+    if (RULES.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 12px;">NENHUMA REGRA</div>`;
+      return;
+    }
 
     RULES.forEach(rule => {
       const el = document.createElement('div');
@@ -878,6 +994,48 @@ export class KakeiboApp {
       `;
 
       container.appendChild(el);
+    });
+  }
+
+  // ── IMPORT HISTORY ────────────────────────────────────────────────────────
+
+  private renderImportHistory() {
+    const tbody = document.getElementById('import-history-body');
+    if (!tbody) return;
+    tbody.innerHTML = '';
+
+    if (IMPORT_BATCHES.length === 0) {
+      tbody.innerHTML = `<tr><td colspan="5" style="padding: 12px; text-align: center;" class="micro-label">NENHUM EXTRATO IMPORTADO</td></tr>`;
+      return;
+    }
+
+    IMPORT_BATCHES.forEach((batch) => {
+      const rawDate = batch.appliedAt || batch.createdAt;
+      const dateLabel = rawDate && rawDate.includes('T')
+        ? formatDate(rawDate.slice(0, 10))
+        : (rawDate ? formatDate(rawDate.slice(0, 10)) : '—');
+      const statusLabelText =
+        batch.status === 'applied' ? 'APLICADO' :
+        batch.status === 'reverted' ? 'REVERTIDO' :
+        'PARSEADO';
+      const statusClass =
+        batch.status === 'applied' ? 'txt-green' :
+        batch.status === 'reverted' ? 'txt-pink' :
+        'txt-amber';
+      const txCount = batch.stats
+        ? (batch.stats.created ?? batch.stats.transactions ?? batch.stats.total ?? batch.stats.newRows ?? 0)
+        : 0;
+
+      const tr = document.createElement('tr');
+      tr.style.borderBottom = '1px dotted var(--c-grey-blue)';
+      tr.innerHTML = `
+        <td style="padding: 6px;">${escapeHtml(dateLabel)}</td>
+        <td style="padding: 6px;">${escapeHtml(batch.filename)}</td>
+        <td style="padding: 6px;">${escapeHtml(getAccountName(batch.accountId))}</td>
+        <td style="padding: 6px;" class="num-currency">${txCount}</td>
+        <td style="padding: 6px; text-align: right;" class="micro-label ${statusClass}">[${statusLabelText}]</td>
+      `;
+      tbody.appendChild(tr);
     });
   }
 
@@ -1048,77 +1206,33 @@ export class KakeiboApp {
 
   // ── AI RISK CONFIRMATION ──────────────────────────────────────────────────
 
-  private triggerAiRiskConfirmation(diffText: string, onApprove: () => void) {
+  private triggerAiRiskConfirmation(diffText: string, onApprove: () => void, onReject?: () => void) {
     const modal = document.getElementById('modal-ai-risk-confirm');
     const diffEl = document.getElementById('ai-risk-diff-text');
-    const approveBtn = document.getElementById('btn-confirm-risk');
+    const approveBtn = document.getElementById('btn-confirm-risk') as HTMLButtonElement | null;
     const rejectBtn = document.getElementById('btn-reject-risk');
     const closeBtn = document.getElementById('btn-close-risk');
-
     if (!modal || !diffEl) return;
-
     diffEl.innerHTML = diffText;
     modal.classList.remove('hidden');
     pc98Audio.playWarning();
-
-    const cleanup = () => {
+    const cleanup = (rejected: boolean) => {
       modal.classList.add('hidden');
+      document.removeEventListener('keydown', onKey);
+      this.aiRiskReject = null;
+      if (rejected) onReject?.();
     };
-
+    const onKey = (ev: KeyboardEvent) => {
+      if (ev.key === 'Escape') { ev.preventDefault(); ev.stopPropagation(); cleanup(true); }
+    };
+    this.aiRiskReject = () => cleanup(true);
     if (approveBtn) {
-      approveBtn.onclick = () => {
-        pc98Audio.playSelect();
-        cleanup();
-        onApprove();
-      };
+      approveBtn.onclick = () => { pc98Audio.playSelect(); cleanup(false); onApprove(); };
+      approveBtn.focus();
     }
-
-    if (rejectBtn) rejectBtn.onclick = cleanup;
-    if (closeBtn) closeBtn.onclick = cleanup;
-  }
-
-  // ── STYLE GUIDE ───────────────────────────────────────────────────────────
-
-  private renderStyleGuide() {
-    const swatchContainer = document.getElementById('swatch-grid-container');
-    if (swatchContainer && swatchContainer.children.length === 0) {
-      const colors = [
-        { name: 'VOID BLACK', hex: '#0A0A14' }, { name: 'DEEP NAVY', hex: '#14142B' },
-        { name: 'INDIGO', hex: '#22224A' }, { name: 'SLATE', hex: '#333C57' },
-        { name: 'GREY BLUE', hex: '#566C86' }, { name: 'PALE GREY', hex: '#C0CBDC' },
-        { name: 'BONE WHITE', hex: '#F2F0E5' }, { name: 'PURE WHITE', hex: '#FFFFFF' },
-        { name: 'BLUE', hex: '#3B5DC9' }, { name: 'SKY', hex: '#41A6F6' },
-        { name: 'PALE CYAN', hex: '#73EFF7' }, { name: 'GREEN', hex: '#38B764' },
-        { name: 'AMBER', hex: '#F4B41B' }, { name: 'MAGENTA PINK', hex: '#E5537A' },
-        { name: 'PURPLE', hex: '#A23E8C' }, { name: 'TAN', hex: '#E4A672' },
-      ];
-
-      colors.forEach(c => {
-        const card = document.createElement('div');
-        card.className = 'swatch-card';
-        card.innerHTML = `
-          <div class="swatch-box" style="background-color: ${c.hex};"></div>
-          <div class="swatch-info">
-            <span style="color: var(--c-bone-white); font-weight: bold;">${c.name}</span>
-            <span style="color: var(--c-pale-cyan);">${c.hex}</span>
-          </div>
-        `;
-        swatchContainer.appendChild(card);
-      });
-    }
-
-    const iconContainer = document.getElementById('icon-sheet-container');
-    if (iconContainer && iconContainer.children.length === 0) {
-      Object.keys(BITMAP_ICONS).forEach(key => {
-        const tile = document.createElement('div');
-        tile.className = 'icon-tile';
-        tile.innerHTML = `
-          <div style="width: 16px; height: 16px;">${BITMAP_ICONS[key]}</div>
-          <span class="micro-label">${key}</span>
-        `;
-        iconContainer.appendChild(tile);
-      });
-    }
+    if (rejectBtn) rejectBtn.onclick = () => cleanup(true);
+    if (closeBtn) closeBtn.onclick = () => cleanup(true);
+    document.addEventListener('keydown', onKey);
   }
 
   // ── AI INSIGHT TYPEWRITER ─────────────────────────────────────────────────
@@ -1157,6 +1271,17 @@ export class KakeiboApp {
     textEl.innerHTML = '';
     this.isTyping = true;
 
+    const finishTyping = () => {
+      const badgeHtml = badges.map((b) => `<span class="micro-label txt-cyan">[${escapeHtml(b)}]</span>`).join(' ');
+      textEl.innerHTML = `${escapeHtml(fullText)}<br/><div style="margin-top: 4px;">${badgeHtml}</div><span class="blinking-cursor"></span>`;
+      this.isTyping = false;
+    };
+
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      finishTyping();
+      return;
+    }
+
     let charIdx = 0;
     const typeNextChar = () => {
       if (charIdx < fullText.length) {
@@ -1165,9 +1290,7 @@ export class KakeiboApp {
         charIdx += 1;
         setTimeout(typeNextChar, 25);
       } else {
-        const badgeHtml = badges.map((b) => `<span class="micro-label txt-cyan">[${escapeHtml(b)}]</span>`).join(' ');
-        textEl.innerHTML = `${escapeHtml(fullText)}<br/><div style="margin-top: 4px;">${badgeHtml}</div><span class="blinking-cursor"></span>`;
-        this.isTyping = false;
+        finishTyping();
       }
     };
 
@@ -1233,8 +1356,6 @@ export class KakeiboApp {
         const projCanvas = document.getElementById('projection-chart-canvas') as HTMLCanvasElement;
         if (projCanvas) PC98ChartSuite.renderProjectionChart(projCanvas, PROJECTION);
       }, 50);
-    } else if (tabId === 'style-guide') {
-      this.renderStyleGuide();
     }
   }
 
@@ -1420,7 +1541,7 @@ export class KakeiboApp {
 
   /** Habilita/desabilita a entrada durante a resposta. */
   private setChatBusy(busy: boolean) {
-    const input = document.getElementById('chat-input') as HTMLInputElement | null;
+    const input = document.getElementById('chat-input-text') as HTMLInputElement | null;
     const send = document.getElementById('btn-send-chat') as HTMLButtonElement | null;
     if (input) {
       input.disabled = busy;
@@ -1467,6 +1588,8 @@ export class KakeiboApp {
         'Confirmado, pode executar.',
         pending.map((p) => p.token),
       );
+    }, () => {
+      meta.innerHTML = `<span class="micro-label txt-pink">[CANCELADO]</span>`;
     });
 
     void originalMessage;
@@ -1526,6 +1649,7 @@ export class KakeiboApp {
       btn.className = `pc98-btn text-xs ${cat.id === this.selectedAddCategoryId ? 'btn-primary' : ''}`;
       btn.style.padding = '8px 6px';
       btn.textContent = cat.name.toUpperCase();
+      btn.setAttribute('aria-pressed', cat.id === this.selectedAddCategoryId ? 'true' : 'false');
       btn.addEventListener('click', () => {
         pc98Audio.playSelect();
         this.selectedAddCategoryId = cat.id;
@@ -1703,7 +1827,6 @@ export class KakeiboApp {
       else if (e.key === '6') this.switchTab('investments');
       else if (e.key === '7') this.switchTab('importer');
       else if (e.key === '8') this.switchTab('category');
-      else if (e.key === '9') this.switchTab('style-guide');
       else if (e.key.toLowerCase() === 'r') this.switchTab('recurrences');
       else if (e.key.toLowerCase() === 'm') this.switchTab('goals');
       else if (e.key.toLowerCase() === 'g') this.switchTab('rules');
@@ -1713,6 +1836,10 @@ export class KakeiboApp {
         const helpModal = document.getElementById('modal-help-guide');
         helpModal?.classList.toggle('hidden');
       } else if (e.key === 'Escape') {
+        if (this.aiRiskReject) {
+          this.aiRiskReject();
+          return;
+        }
         document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
         if (window.matchMedia('(max-width: 1100px)').matches) {
           this.setAiDockOpen(false);
@@ -1770,9 +1897,10 @@ export class KakeiboApp {
         danger: true
       });
       if (ok) {
-        this.transactions = this.transactions.filter(t => !this.selectedJournalTxIds.has(t.id));
+        const ids = [...this.selectedJournalTxIds];
+        await Promise.allSettled(ids.map((id) => api.deleteTransaction(id)));
         this.selectedJournalTxIds.clear();
-        this.renderAll();
+        await this.reloadAfterWrite(`${ids.length} lançamento(s) excluído(s).`);
       }
     });
 
@@ -1792,23 +1920,40 @@ export class KakeiboApp {
       if (typeof newCatName === 'string' && newCatName.trim()) {
         const matchedCat = CATEGORIES.find(c => c.name.toLowerCase() === newCatName.trim().toLowerCase());
         if (matchedCat) {
-          this.transactions.forEach(t => {
-            if (this.selectedJournalTxIds.has(t.id)) {
-              t.categoryId = matchedCat.id;
-            }
-          });
-          this.selectedJournalTxIds.clear();
-          this.renderAll();
+          const ids = [...this.selectedJournalTxIds];
+          try {
+            const result = await api.bulkCategorize(ids, matchedCat.id);
+            this.selectedJournalTxIds.clear();
+            await this.reloadAfterWrite(`${result.data.updated} lançamento(s) recategorizado(s).`, result.changeSetId);
+          } catch (error) {
+            this.notify(
+              error instanceof ApiError ? error.message : `Falha ao recategorizar: ${String(error)}`,
+              'error',
+            );
+          }
         } else {
           await this.openSystemDialog({
             title: '✦ CATEGORIA NÃO ENCONTRADA ✦',
-            body: `Nenhuma categoria corresponde a "<strong>${newCatName}</strong>".`,
+            body: `Nenhuma categoria corresponde a "<strong>${escapeHtml(newCatName)}</strong>".`,
             confirmLabel: '[OK]',
             cancelLabel: '',
             danger: false
           });
         }
       }
+    });
+
+    document.getElementById('btn-new-account')?.addEventListener('click', () => {
+      void this.promptCreateAccount();
+    });
+    document.getElementById('btn-new-goal')?.addEventListener('click', () => {
+      void this.promptCreateGoal();
+    });
+    document.getElementById('btn-new-recurrence')?.addEventListener('click', () => {
+      void this.promptCreateRecurrence();
+    });
+    document.getElementById('btn-new-rule')?.addEventListener('click', () => {
+      void this.promptCreateRule();
     });
 
     // SAC vs PRICE HELP MODAL
@@ -2042,17 +2187,16 @@ export class KakeiboApp {
       textInput.value = '';
     });
 
-    // Credit Card Pay Invoice
+    // Credit Card Pay Invoice (legacy global button — prefer per-invoice [PAGAR])
     const payInvoiceBtn = document.getElementById('btn-pay-invoice');
     payInvoiceBtn?.addEventListener('click', async () => {
       pc98Audio.playSelect();
-      await this.openSystemDialog({
-        title: '✦ FATURA PAGA ✦',
-        body: 'Fatura Nubank paga com sucesso.<br/><span class="micro-label txt-cyan">mutate() → changeSet criado para auditoria</span>',
-        confirmLabel: '[OK]',
-        cancelLabel: '',
-        danger: false
-      });
+      const openInv = CARD_INVOICES.find((inv) => inv.status === 'open' || inv.status === 'overdue');
+      if (!openInv) {
+        this.notify('Nenhuma fatura aberta para pagar.', 'warn');
+        return;
+      }
+      await this.payInvoiceById(openInv.id);
     });
 
     // Early Payment Simulation
@@ -2060,15 +2204,221 @@ export class KakeiboApp {
     simEarlyPayBtn?.addEventListener('click', async () => {
       pc98Audio.playSelect();
       const d = DEBTS[0];
-      const ratePercent = (d.annualRateBps / 100).toFixed(2);
-      await this.openSystemDialog({
-        title: `✦ SIMULAÇÃO ${d.system.toUpperCase()} ✦`,
-        body: `Ao aportar <strong class="txt-amber">R$ 10.000,00</strong> extras, você economizará aproximadamente <strong class="txt-green">R$ 8.400,00</strong> em juros futuros e reduzirá o prazo em <strong>7 parcelas</strong>.<br/><br/><span class="micro-label">Taxa: ${ratePercent}% a.a. · Parcelas restantes: ${d.remainingCount}</span>`,
-        confirmLabel: '[ENTENDI]',
-        cancelLabel: '',
-        danger: false
-      });
+      if (!d) {
+        this.notify('Nenhuma dívida cadastrada para simular.', 'warn');
+        return;
+      }
+      try {
+        const sim = await api.simulateExtra(d.id, 1000000);
+        await this.openSystemDialog({
+          title: `✦ SIMULAÇÃO ${d.system.toUpperCase()} ✦`,
+          body: `Ao aportar <strong class="txt-amber">${formatMoney(1000000)}</strong> extras em <strong>${escapeHtml(sim.debtName)}</strong>, você economizará aproximadamente <strong class="txt-green">${formatMoney(sim.interestSavedCents)}</strong> em juros e reduzirá o prazo em <strong>${sim.monthsSaved}</strong> meses (novo prazo: ${sim.newTermMonths} meses).<br/><br/><span class="micro-label">Parcelas restantes: ${d.remainingCount}</span>`,
+          confirmLabel: '[ENTENDI]',
+          cancelLabel: '',
+          danger: false
+        });
+      } catch (error) {
+        this.notify(
+          error instanceof ApiError ? error.message : `Falha na simulação: ${String(error)}`,
+          'error',
+        );
+      }
     });
+  }
+
+  private async payInvoiceById(invoiceId: string) {
+    pc98Audio.playSelect();
+    const inv = CARD_INVOICES.find((i) => i.id === invoiceId);
+    if (!inv) {
+      this.notify('Fatura não encontrada.', 'warn');
+      return;
+    }
+    const ok = await this.openSystemDialog({
+      title: '✦ PAGAR FATURA ✦',
+      body: `Pagar fatura <strong>${escapeHtml(inv.referenceMonth)}</strong> de <strong class="txt-amber">${formatMoney(inv.totalCents)}</strong>?`,
+      confirmLabel: '[PAGAR]',
+      cancelLabel: '[CANCELAR]',
+      danger: false,
+    });
+    if (!ok) return;
+    try {
+      const result = await api.payInvoice(invoiceId);
+      await this.reloadAfterWrite('Fatura paga.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao pagar fatura: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateAccount() {
+    pc98Audio.playSelect();
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA CONTA ✦',
+      body: 'Nome da conta:',
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+    try {
+      const result = await api.createAccount({ name: name.trim(), kind: 'checking', currency: 'BRL' });
+      await this.reloadAfterWrite('Conta criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar conta: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateGoal() {
+    pc98Audio.playSelect();
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA META ✦',
+      body: 'Nome da meta:',
+      confirmLabel: '[PRÓXIMO]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+
+    const targetStr = await this.openSystemDialog({
+      title: '✦ NOVA META ✦',
+      body: `Alvo de <strong>${escapeHtml(name.trim())}</strong> em R$:`,
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '1000',
+      danger: false,
+    });
+    if (typeof targetStr !== 'string') return;
+    const target = parseFloat(targetStr.replace(',', '.'));
+    if (!Number.isFinite(target) || target <= 0) {
+      this.notify('Informe um valor alvo válido.', 'warn');
+      return;
+    }
+    try {
+      const result = await api.createGoal({ name: name.trim(), targetCents: Math.round(target * 100) });
+      await this.reloadAfterWrite('Meta criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar meta: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateRecurrence() {
+    pc98Audio.playSelect();
+    if (ACCOUNTS.length === 0) {
+      this.notify('Crie uma conta antes de adicionar recorrências.', 'warn');
+      return;
+    }
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA RECORRÊNCIA ✦',
+      body: 'Nome da recorrência:',
+      confirmLabel: '[PRÓXIMO]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+
+    const amountStr = await this.openSystemDialog({
+      title: '✦ NOVA RECORRÊNCIA ✦',
+      body: `Valor mensal de <strong>${escapeHtml(name.trim())}</strong> em R$:`,
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '100',
+      danger: false,
+    });
+    if (typeof amountStr !== 'string') return;
+    const amount = parseFloat(amountStr.replace(',', '.'));
+    if (!Number.isFinite(amount) || amount <= 0) {
+      this.notify('Informe um valor válido.', 'warn');
+      return;
+    }
+
+    const accountId =
+      ACCOUNTS.find((a) => !a.isArchived && a.kind === 'checking')?.id ||
+      ACCOUNTS.find((a) => !a.isArchived)?.id ||
+      ACCOUNTS[0]?.id;
+    if (!accountId) {
+      this.notify('Crie uma conta antes de adicionar recorrências.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.createRecurrence({
+        name: name.trim(),
+        accountId,
+        type: 'expense',
+        amountCents: Math.round(amount * 100),
+        freq: 'monthly',
+        dayOfMonth: 1,
+        startDate: TODAY,
+        autoPost: false,
+      });
+      await this.reloadAfterWrite('Recorrência criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar recorrência: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async promptCreateRule() {
+    pc98Audio.playSelect();
+    const name = await this.openSystemDialog({
+      title: '✦ NOVA REGRA ✦',
+      body: 'Nome da regra:',
+      confirmLabel: '[PRÓXIMO]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof name !== 'string' || !name.trim()) return;
+
+    const contains = await this.openSystemDialog({
+      title: '✦ NOVA REGRA ✦',
+      body: 'Texto que a descrição deve conter:',
+      confirmLabel: '[CRIAR]',
+      cancelLabel: '[CANCELAR]',
+      showInput: true,
+      promptDefault: '',
+      danger: false,
+    });
+    if (typeof contains !== 'string' || !contains.trim()) return;
+
+    const leafCat = CATEGORIES.find((c) => c.kind === 'expense' && c.parentId && !c.isArchived);
+    if (!leafCat) {
+      this.notify('Nenhuma categoria de despesa disponível para a regra.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.createRule({
+        name: name.trim(),
+        conditions: { descriptionContains: contains.trim() },
+        actions: { categoryId: leafCat.id },
+      });
+      await this.reloadAfterWrite('Regra criada.', result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao criar regra: ${String(error)}`,
+        'error',
+      );
+    }
   }
 }
 

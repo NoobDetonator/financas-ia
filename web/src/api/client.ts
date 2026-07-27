@@ -851,6 +851,7 @@ export const api = {
 
   // Regras
   rules: () => request<Rule[]>('/rules'),
+  createRule: (body: unknown) => request<WriteResult<Rule>>('/rules', { method: 'POST', body }),
   ruleSuggestions: () =>
     request<
       Array<{

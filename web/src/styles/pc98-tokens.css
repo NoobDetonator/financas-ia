@@ -2327,6 +2327,115 @@ body.ai-dock-open .right-ai-sidebar {
   overflow-y: auto;
 }
 
+.category-picker-window {
+  width: 480px;
+  max-width: 95%;
+}
+
+.category-picker-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: min(420px, 55vh);
+  overflow-y: auto;
+  padding: 6px;
+  background: var(--c-surface-well, var(--c-void-black));
+  border: 1px solid var(--c-border-soft, var(--c-slate));
+}
+
+.category-picker-item {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--c-bone-white);
+  font: inherit;
+}
+
+.category-picker-item:hover,
+.category-picker-item:focus-visible {
+  background: var(--c-slate);
+  outline: none;
+}
+
+.category-picker-item.is-selected {
+  background: var(--c-pale-cyan);
+  color: var(--c-ink-fixed, #141428);
+  border-color: var(--c-cyan);
+  font-weight: bold;
+}
+
+.category-picker-item .cat-parent {
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  opacity: 0.75;
+  text-transform: uppercase;
+}
+
+.category-picker-empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--c-grey-blue);
+}
+
+.tx-edit-window {
+  width: 560px;
+  max-width: 95%;
+}
+
+.tx-edit-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+
+.tx-edit-category-btn {
+  width: 100%;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  text-align: left;
+}
+
+.tx-edit-notes {
+  resize: vertical;
+  min-height: 56px;
+  font-family: inherit;
+}
+
+.tx-edit-hint {
+  color: var(--c-amber);
+  margin-top: 4px;
+}
+
+.tx-category {
+  cursor: pointer;
+  text-decoration: underline dotted;
+  text-underline-offset: 3px;
+}
+
+.tx-category:hover {
+  color: var(--c-cyan);
+}
+
+.journal-edit-hint {
+  font-size: 11px;
+}
+
+@media (max-width: 640px) {
+  .tx-edit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 .invoice-metrics-grid {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

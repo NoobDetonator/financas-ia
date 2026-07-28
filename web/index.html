@@ -461,9 +461,14 @@
                     <button id="btn-batch-select-all" class="pc98-btn text-micro" style="padding: 2px 6px;">[SELECIONAR TODOS]</button>
                   </div>
                   <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                    <button id="btn-batch-edit" class="pc98-btn btn-primary text-micro" style="padding: 4px 10px;">[EDITAR]</button>
                     <button id="btn-batch-delete" class="pc98-btn btn-alert text-micro" style="padding: 4px 10px;">[APAGAR SELECIONADOS]</button>
                     <button id="btn-batch-recategorize" class="pc98-btn btn-gold text-micro" style="padding: 4px 10px;">[MUDAR CATEGORIA]</button>
                   </div>
+                </div>
+
+                <div class="micro-label journal-edit-hint" style="color: var(--c-grey-blue); margin-bottom: 6px;">
+                  Clique na categoria para trocar · duplo clique na linha para editar
                 </div>
 
                 <div class="tx-header">
@@ -1121,6 +1126,106 @@
           <button type="button" id="btn-system-dialog-cancel" class="pc98-btn">[CANCELAR]</button>
           <button type="button" id="btn-system-dialog-confirm" class="pc98-btn btn-alert">[CONFIRMAR]</button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- CATEGORY PICKER (search + click) -->
+  <div id="modal-category-picker" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="category-picker-title">
+    <div class="pc98-window accent-header category-picker-window">
+      <div class="window-title-bar">
+        <div class="title-label"><span id="category-picker-title">✦ ESCOLHER CATEGORIA ✦</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-category-picker" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 10px;">
+        <div class="pc98-form-group">
+          <label class="micro-label" for="category-picker-search">PESQUISAR</label>
+          <input type="search" id="category-picker-search" class="pc98-input" placeholder="Digite para filtrar…" autocomplete="off" />
+        </div>
+        <div id="category-picker-list" class="category-picker-list" role="listbox" aria-label="Categorias"></div>
+        <div style="display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap;">
+          <button type="button" id="btn-category-picker-clear" class="pc98-btn text-micro">[SEM CATEGORIA]</button>
+          <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+            <button type="button" id="btn-category-picker-cancel" class="pc98-btn">[CANCELAR]</button>
+            <button type="button" id="btn-category-picker-confirm" class="pc98-btn btn-primary">[APLICAR]</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- TRANSACTION EDIT FORM -->
+  <div id="modal-tx-edit" class="modal-backdrop hidden" role="dialog" aria-modal="true" aria-labelledby="tx-edit-title">
+    <div class="pc98-window accent-header tx-edit-window">
+      <div class="window-title-bar">
+        <div class="title-label"><span id="tx-edit-title">EDITAR LANÇAMENTO</span></div>
+        <div class="window-controls"><button type="button" id="btn-close-tx-edit" class="win-btn" aria-label="Fechar">x</button></div>
+      </div>
+      <div class="window-content" style="gap: 12px;">
+        <form id="form-tx-edit" style="display: flex; flex-direction: column; gap: 10px;">
+          <div class="pc98-well tx-edit-summary micro-label" id="tx-edit-summary"></div>
+
+          <div class="tx-edit-grid">
+            <div class="pc98-form-group">
+              <label class="micro-label" for="tx-edit-description">DESCRIÇÃO</label>
+              <input type="text" id="tx-edit-description" name="description" class="pc98-input" required maxlength="200" autocomplete="off" />
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="tx-edit-amount">VALOR (R$)</label>
+              <input type="number" step="0.01" min="0.01" id="tx-edit-amount" name="amount" class="pc98-input" required />
+              <div id="tx-edit-amount-hint" class="micro-label tx-edit-hint hidden"></div>
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="tx-edit-date">DATA</label>
+              <input type="date" id="tx-edit-date" name="date" class="pc98-input" required />
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="tx-edit-status">STATUS</label>
+              <select id="tx-edit-status" name="status" class="pc98-input">
+                <option value="cleared">Efetivado</option>
+                <option value="pending">Pendente</option>
+                <option value="scheduled">Agendado</option>
+                <option value="reconciled">Conferido</option>
+              </select>
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="tx-edit-account">CONTA</label>
+              <select id="tx-edit-account" name="accountId" class="pc98-input" required></select>
+            </div>
+            <div class="pc98-form-group">
+              <label class="micro-label" for="tx-edit-payee">FAVORECIDO</label>
+              <select id="tx-edit-payee" name="payeeId" class="pc98-input">
+                <option value="">— nenhum —</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="pc98-form-group">
+            <label class="micro-label" for="tx-edit-category-btn">CATEGORIA</label>
+            <button type="button" id="tx-edit-category-btn" class="pc98-btn tx-edit-category-btn">
+              <span id="tx-edit-category-label">Sem categoria</span>
+              <span class="micro-label">[TROCAR]</span>
+            </button>
+          </div>
+
+          <div class="pc98-form-group">
+            <label class="micro-label" for="tx-edit-notes">OBSERVAÇÕES</label>
+            <textarea id="tx-edit-notes" name="notes" class="pc98-input tx-edit-notes" rows="2" maxlength="2000" placeholder="Opcional"></textarea>
+          </div>
+
+          <div class="pc98-form-group">
+            <label class="micro-label" for="tx-edit-tags">TAGS (separadas por vírgula)</label>
+            <input type="text" id="tx-edit-tags" name="tags" class="pc98-input" maxlength="200" autocomplete="off" placeholder="ex.: viagem, reembolso" />
+          </div>
+
+          <div style="display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap;">
+            <button type="button" id="btn-tx-edit-delete" class="pc98-btn btn-alert">[APAGAR]</button>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button type="button" id="btn-cancel-tx-edit" class="pc98-btn">[CANCELAR]</button>
+              <button type="submit" id="btn-save-tx-edit" class="pc98-btn btn-primary">[SALVAR]</button>
+            </div>
+          </div>
+        </form>
       </div>
     </div>
   </div>

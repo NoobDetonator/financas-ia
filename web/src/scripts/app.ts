@@ -4,7 +4,7 @@ import { PC98ChartSuite } from './charts';
 import {
   ACCOUNTS, TRANSACTIONS, BUDGETS, DEBTS, HOLDINGS, RECURRENCES,
   GOALS, RULES, INSIGHTS, CARD_INVOICES, DEBT_PAYMENTS, MONTHLY_FLOW,
-  PROJECTION, CATEGORIES, IMPORT_BATCHES, PORTFOLIO,
+  PROJECTION, CATEGORIES, IMPORT_BATCHES, PORTFOLIO, PAYEES,
   formatMoney, formatDate, toIsoDate, getAccountName, getCategoryPath,
   getCategoryName, getPayeeName, getTagNames, computeBalance,
   totalAvailableBalance, currentMonthIncome, currentMonthExpense, netWorth,
@@ -224,6 +224,9 @@ export class KakeiboApp {
   private selectedAccountId: string | null = null;
   private accountFormMode: 'create' | 'edit' = 'create';
   private editingAccountId: string | null = null;
+  private editingTxId: string | null = null;
+  private editingTxCategoryId: string | null = null;
+  private categoryPickerSelectedId: string | null = null;
   private pendingAiConfirm: {
     items: Array<{ token: string; summary: string; reason: string }>;
     originalMessage: string;
@@ -1440,7 +1443,7 @@ export class KakeiboApp {
           <div>${tx.description} ${installLabel} ${statusBadge}</div>
           <div class="micro-label">${accountName} • ${payee ? payee + ' • ' : ''}VIA ${tx.createdBy.toUpperCase()} ${tagsHtml}</div>
         </div>
-        <div class="tx-category">${catName}</div>
+        <div class="tx-category" data-tx-id="${tx.id}" title="Clique para trocar a categoria">${escapeHtml(catName)}</div>
         <div class="num-currency text-md ${amtClass}" style="text-align: right;">${amtSign}${amtVal}</div>
       `;
 
@@ -1456,11 +1459,27 @@ export class KakeiboApp {
         this.renderJournalTransactions(filterKey);
       });
 
+      row.querySelector('.tx-category')?.addEventListener('click', (e) => {
+        e.stopPropagation();
+        pc98Audio.playSelect();
+        this.selectedTxId = tx.id;
+        void this.quickChangeCategory(tx.id);
+      });
+
       row.addEventListener('click', (e) => {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        if ((e.target as HTMLElement).closest('.tx-category')) return;
         pc98Audio.playSelect();
         this.selectedTxId = tx.id;
         this.renderJournalTransactions(filterKey);
+      });
+
+      row.addEventListener('dblclick', (e) => {
+        if ((e.target as HTMLElement).tagName === 'INPUT') return;
+        if ((e.target as HTMLElement).closest('.tx-category')) return;
+        pc98Audio.playSelect();
+        this.selectedTxId = tx.id;
+        void this.openTxEdit(tx.id);
       });
 
       container.appendChild(row);
@@ -2713,6 +2732,374 @@ export class KakeiboApp {
     document.getElementById('modal-category-form')?.classList.add('hidden');
   }
 
+  /** Categorias clicáveis (folhas + raízes sem filhas), filtráveis por texto. */
+  private listPickableCategories(
+    kind: 'expense' | 'income' | 'both',
+    query = '',
+  ): Array<{ id: string; name: string; parentName: string | null; kind: 'expense' | 'income' }> {
+    const pool = CATEGORIES.filter(
+      (c) => !c.isArchived && (kind === 'both' || c.kind === kind),
+    );
+    const hasChildren = new Set(
+      pool.filter((c) => c.parentId).map((c) => c.parentId as string),
+    );
+    const pickable = pool.filter((c) => c.parentId !== null || !hasChildren.has(c.id));
+    const q = query.trim().toLowerCase();
+
+    return pickable
+      .map((c) => ({
+        id: c.id,
+        name: c.name,
+        parentName: c.parentId
+          ? (CATEGORIES.find((p) => p.id === c.parentId)?.name ?? null)
+          : null,
+        kind: c.kind,
+      }))
+      .filter((c) => {
+        if (!q) return true;
+        const hay = `${c.parentName ?? ''} ${c.name}`.toLowerCase();
+        return hay.includes(q);
+      })
+      .sort((a, b) => {
+        const ap = a.parentName ?? a.name;
+        const bp = b.parentName ?? b.name;
+        return ap.localeCompare(bp, 'pt-BR') || a.name.localeCompare(b.name, 'pt-BR');
+      });
+  }
+
+  private renderCategoryPickerList(kind: 'expense' | 'income' | 'both', query: string) {
+    const list = document.getElementById('category-picker-list');
+    if (!list) return;
+
+    const items = this.listPickableCategories(kind, query);
+    list.innerHTML = '';
+
+    if (items.length === 0) {
+      list.innerHTML = `<div class="category-picker-empty micro-label">Nenhuma categoria encontrada</div>`;
+      return;
+    }
+
+    for (const item of items) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `category-picker-item${item.id === this.categoryPickerSelectedId ? ' is-selected' : ''}`;
+      btn.setAttribute('role', 'option');
+      btn.setAttribute('aria-selected', item.id === this.categoryPickerSelectedId ? 'true' : 'false');
+      btn.dataset.categoryId = item.id;
+      btn.innerHTML = item.parentName
+        ? `<span class="cat-parent">${escapeHtml(item.parentName)}</span><span>${escapeHtml(item.name)}</span>`
+        : `<span>${escapeHtml(item.name)}</span>`;
+      btn.addEventListener('click', () => {
+        pc98Audio.playSelect();
+        this.categoryPickerSelectedId = item.id;
+        this.renderCategoryPickerList(kind, query);
+      });
+      btn.addEventListener('dblclick', () => {
+        pc98Audio.playClick();
+        this.categoryPickerSelectedId = item.id;
+        document.getElementById('btn-category-picker-confirm')?.click();
+      });
+      list.appendChild(btn);
+    }
+
+    const selected = list.querySelector('.category-picker-item.is-selected') as HTMLElement | null;
+    selected?.scrollIntoView({ block: 'nearest' });
+  }
+
+  /**
+   * Abre o seletor pesquisável de categorias.
+   * `false` = cancelou; `null` = sem categoria; `string` = id escolhido.
+   */
+  private openCategoryPicker(options: {
+    title?: string;
+    selectedId?: string | null;
+    kind?: 'expense' | 'income' | 'both';
+    allowClear?: boolean;
+  }): Promise<string | null | false> {
+    const modal = document.getElementById('modal-category-picker');
+    const titleEl = document.getElementById('category-picker-title');
+    const searchEl = document.getElementById('category-picker-search') as HTMLInputElement | null;
+    const clearBtn = document.getElementById('btn-category-picker-clear');
+    const cancelBtn = document.getElementById('btn-category-picker-cancel');
+    const confirmBtn = document.getElementById('btn-category-picker-confirm');
+    const closeBtn = document.getElementById('btn-close-category-picker');
+
+    if (!modal || !confirmBtn || !cancelBtn) return Promise.resolve(false);
+
+    const kind = options.kind ?? 'both';
+    this.categoryPickerSelectedId = options.selectedId ?? null;
+    if (titleEl) titleEl.textContent = options.title ?? '✦ ESCOLHER CATEGORIA ✦';
+    if (searchEl) searchEl.value = '';
+    clearBtn?.classList.toggle('hidden', options.allowClear === false);
+
+    this.renderCategoryPickerList(kind, '');
+    modal.classList.remove('hidden');
+    searchEl?.focus();
+
+    return new Promise((resolve) => {
+      const cleanup = () => {
+        modal.classList.add('hidden');
+        searchEl?.removeEventListener('input', onSearch);
+        confirmBtn.removeEventListener('click', onConfirm);
+        cancelBtn.removeEventListener('click', onCancel);
+        closeBtn?.removeEventListener('click', onCancel);
+        clearBtn?.removeEventListener('click', onClear);
+        document.removeEventListener('keydown', onKey);
+      };
+
+      const onSearch = () => {
+        this.renderCategoryPickerList(kind, searchEl?.value ?? '');
+      };
+
+      const onConfirm = () => {
+        if (!this.categoryPickerSelectedId) {
+          this.notify('Selecione uma categoria na lista (ou use Sem categoria).', 'warn');
+          return;
+        }
+        pc98Audio.playClick();
+        const id = this.categoryPickerSelectedId;
+        cleanup();
+        resolve(id);
+      };
+
+      const onClear = () => {
+        pc98Audio.playClick();
+        cleanup();
+        resolve(null);
+      };
+
+      const onCancel = () => {
+        pc98Audio.playClick();
+        cleanup();
+        resolve(false);
+      };
+
+      const onKey = (ev: KeyboardEvent) => {
+        if (ev.key === 'Escape') {
+          ev.preventDefault();
+          onCancel();
+        } else if (ev.key === 'Enter' && document.activeElement !== searchEl) {
+          ev.preventDefault();
+          onConfirm();
+        }
+      };
+
+      searchEl?.addEventListener('input', onSearch);
+      confirmBtn.addEventListener('click', onConfirm);
+      cancelBtn.addEventListener('click', onCancel);
+      closeBtn?.addEventListener('click', onCancel);
+      clearBtn?.addEventListener('click', onClear);
+      document.addEventListener('keydown', onKey);
+    });
+  }
+
+  private async quickChangeCategory(txId: string) {
+    const tx = this.transactions.find((t) => t.id === txId);
+    if (!tx || tx.type === 'transfer') return;
+
+    const picked = await this.openCategoryPicker({
+      title: '✦ MUDAR CATEGORIA ✦',
+      selectedId: tx.categoryId,
+      kind: tx.type === 'income' ? 'income' : 'expense',
+      allowClear: true,
+    });
+    if (picked === false) return;
+
+    try {
+      const result = await api.updateTransaction(txId, { categoryId: picked });
+      await this.reloadAfterWrite(`Categoria de "${tx.description}" atualizada.`, result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao mudar categoria: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private syncTxEditCategoryLabel() {
+    const label = document.getElementById('tx-edit-category-label');
+    if (!label) return;
+    label.textContent = this.editingTxCategoryId
+      ? getCategoryPath(this.editingTxCategoryId)
+      : 'Sem categoria';
+  }
+
+  private openTxEdit(txId: string) {
+    const tx = this.transactions.find((t) => t.id === txId);
+    if (!tx || tx.type === 'transfer') {
+      this.notify('Transferências não são editadas por aqui.', 'warn');
+      return;
+    }
+
+    const modal = document.getElementById('modal-tx-edit');
+    const summary = document.getElementById('tx-edit-summary');
+    const description = document.getElementById('tx-edit-description') as HTMLInputElement | null;
+    const amount = document.getElementById('tx-edit-amount') as HTMLInputElement | null;
+    const amountHint = document.getElementById('tx-edit-amount-hint');
+    const date = document.getElementById('tx-edit-date') as HTMLInputElement | null;
+    const status = document.getElementById('tx-edit-status') as HTMLSelectElement | null;
+    const account = document.getElementById('tx-edit-account') as HTMLSelectElement | null;
+    const payee = document.getElementById('tx-edit-payee') as HTMLSelectElement | null;
+    const notes = document.getElementById('tx-edit-notes') as HTMLTextAreaElement | null;
+    const tags = document.getElementById('tx-edit-tags') as HTMLInputElement | null;
+
+    this.editingTxId = tx.id;
+    this.editingTxCategoryId = tx.categoryId;
+
+    if (summary) {
+      const sign = tx.amountCents < 0 ? 'DESPESA' : 'RECEITA';
+      summary.textContent = `${sign} · ${getAccountName(tx.accountId)} · ${formatDate(tx.date)} · ${formatMoney(tx.amountCents)}`;
+    }
+    if (description) description.value = tx.description;
+    if (amount) {
+      amount.value = (Math.abs(tx.amountCents) / 100).toFixed(2);
+      amount.disabled = tx.hasSplits;
+    }
+    if (amountHint) {
+      if (tx.hasSplits) {
+        amountHint.classList.remove('hidden');
+        amountHint.textContent = 'Lançamento rateado: o valor não pode ser alterado aqui.';
+      } else {
+        amountHint.classList.add('hidden');
+        amountHint.textContent = '';
+      }
+    }
+    if (date) date.value = tx.date;
+    if (status) status.value = tx.status;
+
+    if (account) {
+      account.innerHTML = '';
+      const spendable = ACCOUNTS.filter((a) => !a.isArchived);
+      for (const a of spendable) {
+        const opt = document.createElement('option');
+        opt.value = a.id;
+        opt.textContent = a.name;
+        account.appendChild(opt);
+      }
+      account.value = tx.accountId;
+    }
+
+    if (payee) {
+      payee.innerHTML = '';
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = '— nenhum —';
+      payee.appendChild(none);
+      for (const p of [...PAYEES].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.name;
+        payee.appendChild(opt);
+      }
+      payee.value = tx.payeeId ?? '';
+    }
+
+    if (notes) notes.value = tx.notes ?? '';
+    if (tags) tags.value = getTagNames(tx.tagIds).join(', ');
+
+    this.syncTxEditCategoryLabel();
+    modal?.classList.remove('hidden');
+    description?.focus();
+  }
+
+  private closeTxEdit() {
+    document.getElementById('modal-tx-edit')?.classList.add('hidden');
+    this.editingTxId = null;
+    this.editingTxCategoryId = null;
+  }
+
+  private async submitTxEdit() {
+    if (!this.editingTxId) return;
+    const tx = this.transactions.find((t) => t.id === this.editingTxId);
+    if (!tx) return;
+
+    const description = (document.getElementById('tx-edit-description') as HTMLInputElement | null)?.value.trim() ?? '';
+    const amountRaw = (document.getElementById('tx-edit-amount') as HTMLInputElement | null)?.value ?? '';
+    const date = (document.getElementById('tx-edit-date') as HTMLInputElement | null)?.value ?? '';
+    const status = (document.getElementById('tx-edit-status') as HTMLSelectElement | null)?.value;
+    const accountId = (document.getElementById('tx-edit-account') as HTMLSelectElement | null)?.value;
+    const payeeId = (document.getElementById('tx-edit-payee') as HTMLSelectElement | null)?.value || null;
+    const notesRaw = (document.getElementById('tx-edit-notes') as HTMLTextAreaElement | null)?.value ?? '';
+    const tagsRaw = (document.getElementById('tx-edit-tags') as HTMLInputElement | null)?.value ?? '';
+
+    if (!description) {
+      this.notify('Informe a descrição.', 'warn');
+      return;
+    }
+    if (!date) {
+      this.notify('Informe a data.', 'warn');
+      return;
+    }
+    if (!accountId) {
+      this.notify('Selecione a conta.', 'warn');
+      return;
+    }
+
+    const amountNumber = Number(amountRaw.replace(',', '.'));
+    if (!tx.hasSplits && (!Number.isFinite(amountNumber) || amountNumber <= 0)) {
+      this.notify('Informe um valor válido maior que zero.', 'warn');
+      return;
+    }
+
+    const tags = tagsRaw
+      .split(',')
+      .map((t) => t.trim())
+      .filter(Boolean);
+
+    const body: Record<string, unknown> = {
+      description,
+      date,
+      status,
+      accountId,
+      payeeId,
+      categoryId: this.editingTxCategoryId,
+      notes: notesRaw.trim() ? notesRaw.trim() : null,
+      tags,
+    };
+
+    if (!tx.hasSplits) {
+      body.amountCents = Math.round(amountNumber * 100);
+    }
+
+    try {
+      const result = await api.updateTransaction(tx.id, body);
+      this.closeTxEdit();
+      await this.reloadAfterWrite(`Lançamento "${description}" atualizado.`, result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao salvar: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
+  private async deleteTxFromEdit() {
+    if (!this.editingTxId) return;
+    const tx = this.transactions.find((t) => t.id === this.editingTxId);
+    if (!tx) return;
+
+    const ok = await this.openSystemDialog({
+      title: '✦ CONFIRMAR EXCLUSÃO ✦',
+      body: `Apagar <strong>${escapeHtml(tx.description)}</strong> (${formatMoney(tx.amountCents)})?`,
+      confirmLabel: '[APAGAR]',
+      cancelLabel: '[CANCELAR]',
+      danger: true,
+    });
+    if (!ok) return;
+
+    try {
+      const result = await api.deleteTransaction(tx.id);
+      this.selectedJournalTxIds.delete(tx.id);
+      this.closeTxEdit();
+      await this.reloadAfterWrite(`Lançamento "${tx.description}" excluído.`, result.changeSetId);
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha ao excluir: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
   private async submitCategoryForm() {
     const nameInput = document.getElementById('category-input-name') as HTMLInputElement | null;
     const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
@@ -2929,6 +3316,17 @@ export class KakeiboApp {
           this.aiRiskReject();
           return;
         }
+        // Diálogos com Promise própria tratam Escape nos listeners deles.
+        const pickerOpen = !document.getElementById('modal-category-picker')?.classList.contains('hidden');
+        const systemOpen = !document.getElementById('modal-system-dialog')?.classList.contains('hidden');
+        if (pickerOpen || systemOpen) return;
+
+        const txEdit = document.getElementById('modal-tx-edit');
+        if (txEdit && !txEdit.classList.contains('hidden')) {
+          this.closeTxEdit();
+          return;
+        }
+
         document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
         if (window.matchMedia('(max-width: 1100px)').matches) {
           this.setAiDockOpen(false);
@@ -2969,6 +3367,7 @@ export class KakeiboApp {
 
     // BATCH ACTION HANDLERS
     const btnSelectAll = document.getElementById('btn-batch-select-all');
+    const btnBatchEdit = document.getElementById('btn-batch-edit');
     const btnBatchDelete = document.getElementById('btn-batch-delete');
     const btnBatchRecategorize = document.getElementById('btn-batch-recategorize');
 
@@ -2981,6 +3380,20 @@ export class KakeiboApp {
         visibleTxs.forEach(t => this.selectedJournalTxIds.add(t.id));
       }
       this.renderJournalTransactions(this.currentFilterKey);
+    });
+
+    btnBatchEdit?.addEventListener('click', () => {
+      if (this.selectedJournalTxIds.size === 0) return;
+      pc98Audio.playSelect();
+      const id =
+        (this.selectedTxId && this.selectedJournalTxIds.has(this.selectedTxId)
+          ? this.selectedTxId
+          : [...this.selectedJournalTxIds][0]) ?? null;
+      if (!id) return;
+      if (this.selectedJournalTxIds.size > 1) {
+        this.notify('Selecione um único lançamento para editar, ou use Mudar categoria no lote.', 'warn');
+      }
+      void this.openTxEdit(id);
     });
 
     btnBatchDelete?.addEventListener('click', async () => {
@@ -3004,40 +3417,70 @@ export class KakeiboApp {
     btnBatchRecategorize?.addEventListener('click', async () => {
       if (this.selectedJournalTxIds.size === 0) return;
       pc98Audio.playSelect();
-      const cats = CATEGORIES.filter(c => c.parentId !== null).map(c => c.name);
-      const newCatName = await this.openSystemDialog({
-        title: '✦ MUDAR CATEGORIA ✦',
-        body: `Categorias disponíveis:<br/><span class="txt-cyan">${cats.join(', ')}</span><br/><br/>Digite o nome da categoria destino:`,
-        confirmLabel: '[APLICAR]',
-        cancelLabel: '[CANCELAR]',
-        showInput: true,
-        promptDefault: 'Supermercado',
-        danger: false
+
+      const ids = [...this.selectedJournalTxIds];
+      const sample = this.transactions.find((t) => t.id === ids[0]);
+      const kinds = new Set(
+        ids
+          .map((id) => this.transactions.find((t) => t.id === id)?.type)
+          .filter((t): t is 'expense' | 'income' => t === 'expense' || t === 'income'),
+      );
+      const kind: 'expense' | 'income' | 'both' =
+        kinds.size === 1 ? ([...kinds][0] as 'expense' | 'income') : 'both';
+
+      const picked = await this.openCategoryPicker({
+        title: `✦ MUDAR CATEGORIA (${ids.length}) ✦`,
+        selectedId: sample?.categoryId ?? null,
+        kind,
+        allowClear: false,
       });
-      if (typeof newCatName === 'string' && newCatName.trim()) {
-        const matchedCat = CATEGORIES.find(c => c.name.toLowerCase() === newCatName.trim().toLowerCase());
-        if (matchedCat) {
-          const ids = [...this.selectedJournalTxIds];
-          try {
-            const result = await api.bulkCategorize(ids, matchedCat.id);
-            this.selectedJournalTxIds.clear();
-            await this.reloadAfterWrite(`${result.data.updated} lançamento(s) recategorizado(s).`, result.changeSetId);
-          } catch (error) {
-            this.notify(
-              error instanceof ApiError ? error.message : `Falha ao recategorizar: ${String(error)}`,
-              'error',
-            );
-          }
-        } else {
-          await this.openSystemDialog({
-            title: '✦ CATEGORIA NÃO ENCONTRADA ✦',
-            body: `Nenhuma categoria corresponde a "<strong>${escapeHtml(newCatName)}</strong>".`,
-            confirmLabel: '[OK]',
-            cancelLabel: '',
-            danger: false
-          });
-        }
+      if (picked === false || picked === null) return;
+
+      try {
+        const result = await api.bulkCategorize(ids, picked);
+        this.selectedJournalTxIds.clear();
+        await this.reloadAfterWrite(
+          `${result.data.updated} lançamento(s) recategorizado(s).`,
+          result.changeSetId,
+        );
+      } catch (error) {
+        this.notify(
+          error instanceof ApiError ? error.message : `Falha ao recategorizar: ${String(error)}`,
+          'error',
+        );
       }
+    });
+
+    document.getElementById('btn-close-tx-edit')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeTxEdit();
+    });
+    document.getElementById('btn-cancel-tx-edit')?.addEventListener('click', () => {
+      pc98Audio.playClick();
+      this.closeTxEdit();
+    });
+    document.getElementById('form-tx-edit')?.addEventListener('submit', (e) => {
+      e.preventDefault();
+      pc98Audio.playSelect();
+      void this.submitTxEdit();
+    });
+    document.getElementById('btn-tx-edit-delete')?.addEventListener('click', () => {
+      pc98Audio.playWarning();
+      void this.deleteTxFromEdit();
+    });
+    document.getElementById('tx-edit-category-btn')?.addEventListener('click', async () => {
+      if (!this.editingTxId) return;
+      pc98Audio.playSelect();
+      const tx = this.transactions.find((t) => t.id === this.editingTxId);
+      const picked = await this.openCategoryPicker({
+        title: '✦ CATEGORIA DO LANÇAMENTO ✦',
+        selectedId: this.editingTxCategoryId,
+        kind: tx?.type === 'income' ? 'income' : 'expense',
+        allowClear: true,
+      });
+      if (picked === false) return;
+      this.editingTxCategoryId = picked;
+      this.syncTxEditCategoryLabel();
     });
 
     document.getElementById('btn-new-account')?.addEventListener('click', () => {

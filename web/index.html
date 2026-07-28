@@ -332,8 +332,8 @@
                   <div id="ai-text-target" class="ai-dialogue-text">
                     <!-- Typewriter text inserted here -->
                   </div>
-                  <button type="button" id="btn-ai-continue" class="micro-label txt-cyan" style="align-self: flex-end; background: none; border: none; cursor: pointer; padding: 0; font: inherit; color: inherit;" title="Atalho: C">
-                    ▼ [C] CONTINUE
+                  <button type="button" id="btn-ai-continue" class="micro-label txt-cyan" style="align-self: flex-end; background: none; border: none; cursor: pointer; padding: 0; font: inherit; color: inherit;" title="Atalho: C — próximo alerta">
+                    ▼ [C] PRÓXIMO ALERTA
                   </button>
                 </div>
               </article>
@@ -476,6 +476,7 @@
                   <div>DATA</div>
                   <div>DESCRIÇÃO</div>
                   <div>CATEGORIA</div>
+                  <div class="tx-cat-mobile-header" aria-hidden="true">CAT</div>
                   <div style="text-align: right;">VALOR</div>
                 </div>
 
@@ -513,7 +514,10 @@
 
                 <div class="category-detail-split">
                   <div class="pc98-well" id="cat-detail-picker"></div>
-                  <div class="pc98-well" id="cat-breakdown-bars"></div>
+                  <div style="display: flex; flex-direction: column; gap: 8px;">
+                    <div class="pc98-well cat-selection-detail" id="cat-selection-detail"></div>
+                    <div class="pc98-well" id="cat-breakdown-bars"></div>
+                  </div>
                 </div>
 
               </div>
@@ -679,14 +683,14 @@
 
                 <!-- PARSED SUMMARY RESULTS -->
                 <div id="importer-parsed-results" class="pc98-well hidden" style="display: flex; flex-direction: column; gap: 8px;">
-                  <div class="micro-label txt-green" style="font-size: 12px;">IMPORTAÇÃO CONCLUÍDA COM SUCESSO!</div>
+                  <div class="micro-label txt-amber" style="font-size: 12px;">IMPORTAÇÃO AUTOMÁTICA AINDA NÃO DISPONÍVEL</div>
                   <div id="parsed-summary-text" style="font-size: 14px; color: var(--c-bone-white);">
-                    • Total de transações processadas: 14<br/>
-                    • Categorização automática via IA: 100% de confiança<br/>
-                    • 0 duplicatas detectadas.
+                    O upload/parse de extrato ainda não está ligado à API.<br/>
+                    O histórico abaixo mostra importações reais já aplicadas.<br/>
+                    Por agora, lance manualmente no Journal ou peça à IA.
                   </div>
-                  <button id="btn-confirm-import-rows" class="pc98-btn btn-gold" style="align-self: flex-end; padding: 8px 16px;">
-                    [IMPORTAR PARA O JOURNAL]
+                  <button id="btn-confirm-import-rows" class="pc98-btn" style="align-self: flex-end; padding: 8px 16px;">
+                    [IR AO JOURNAL]
                   </button>
                 </div>
 
@@ -947,8 +951,10 @@
           <div class="text-sm" style="line-height: 1.6; color: var(--c-bone-white);">
             • Teclas <span class="nav-hotkey-badge">1</span>, <span class="nav-hotkey-badge">3</span>–<span class="nav-hotkey-badge">8</span>, <span class="nav-hotkey-badge">R</span>/<span class="nav-hotkey-badge">M</span>/<span class="nav-hotkey-badge">G</span>/<span class="nav-hotkey-badge">F</span> trocam telas.<br/>
             • <span class="nav-hotkey-badge">2</span> foca o painel KAKEIBO.AI à direita (overlay no mobile).<br/>
+            • <span class="nav-hotkey-badge">P</span> abre o perfil. <span class="nav-hotkey-badge">+</span> abre o formulário de lançamento.<br/>
             • No chat: perguntas ou lançamentos em linguagem natural.<br/>
-            • <span class="nav-hotkey-badge">Esc</span> fecha modais / painel IA. <span class="nav-hotkey-badge">F1</span> abre este guia.
+            • No dashboard/chat: <span class="nav-hotkey-badge">C</span> avança para o próximo alerta da IA.<br/>
+            • <span class="nav-hotkey-badge">Esc</span> fecha o modal do topo / painel IA. <span class="nav-hotkey-badge">F1</span> abre este guia.
           </div>
         </div>
         <button id="btn-close-help-confirm" class="pc98-btn btn-gold">[ENTENDI]</button>

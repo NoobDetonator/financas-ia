@@ -222,11 +222,16 @@ export class KakeiboApp {
   private aiRiskDismiss: (() => void) | null = null;
   private accountsFilter: 'all' | 'cashlike' | 'credit' | 'debit' = 'all';
   private selectedAccountId: string | null = null;
+  /** Filtro do Journal — separado do card selecionado em Contas. */
+  private journalAccountFilter: string | null = null;
   private accountFormMode: 'create' | 'edit' = 'create';
   private editingAccountId: string | null = null;
   private editingTxId: string | null = null;
   private editingTxCategoryId: string | null = null;
   private categoryPickerSelectedId: string | null = null;
+  private focusedGoalId: string | null = null;
+  private focusedRecurrenceId: string | null = null;
+  private focusedRuleId: string | null = null;
   private pendingAiConfirm: {
     items: Array<{ token: string; summary: string; reason: string }>;
     originalMessage: string;
@@ -954,8 +959,8 @@ export class KakeiboApp {
     });
     document.getElementById('btn-account-to-journal')?.addEventListener('click', () => {
       pc98Audio.playSelect();
+      this.journalAccountFilter = this.selectedAccountId;
       this.switchTab('transactions');
-      this.renderJournalTransactions(this.currentFilterKey);
     });
     document.getElementById('btn-scroll-invoices')?.addEventListener('click', () => {
       pc98Audio.playClick();
@@ -1067,7 +1072,7 @@ export class KakeiboApp {
     }
 
     this.syncAccountFormSections();
-    modal?.classList.remove('hidden');
+    this.showModal(modal);
     nameInput?.focus();
   }
 
@@ -1347,13 +1352,18 @@ export class KakeiboApp {
   private journalVisibleTxs(filterKey: string = this.currentFilterKey): Transaction[] {
     return this.transactions.filter((tx) => {
       if (tx.type === 'transfer') return false;
-      if (this.selectedAccountId && tx.accountId !== this.selectedAccountId) return false;
+      if (this.journalAccountFilter && tx.accountId !== this.journalAccountFilter) return false;
 
       let matchesFilter = true;
       if (filterKey === 'income') matchesFilter = tx.amountCents > 0;
       else if (filterKey === 'expense') matchesFilter = tx.amountCents < 0;
       else if (filterKey === 'scheduled') matchesFilter = tx.status === 'scheduled';
-      else if (filterKey !== 'all') matchesFilter = tx.categoryId === filterKey;
+      else if (filterKey !== 'all') {
+        const childIds = new Set(
+          CATEGORIES.filter((c) => c.id === filterKey || c.parentId === filterKey).map((c) => c.id),
+        );
+        matchesFilter = !!tx.categoryId && childIds.has(tx.categoryId);
+      }
 
       if (matchesFilter && this.journalSearchQuery.trim() !== '') {
         const query = this.journalSearchQuery.toLowerCase();
@@ -1380,8 +1390,8 @@ export class KakeiboApp {
     container.innerHTML = '';
     this.currentFilterKey = filterKey;
 
-    const accountFilter = this.selectedAccountId
-      ? ACCOUNTS.find((a) => a.id === this.selectedAccountId)
+    const accountFilter = this.journalAccountFilter
+      ? ACCOUNTS.find((a) => a.id === this.journalAccountFilter)
       : null;
 
     if (accountBanner) {
@@ -1394,8 +1404,7 @@ export class KakeiboApp {
         `;
         accountBanner.querySelector('#btn-clear-journal-account-filter')?.addEventListener('click', () => {
           pc98Audio.playClick();
-          this.selectedAccountId = null;
-          this.renderAccounts();
+          this.journalAccountFilter = null;
           this.renderJournalTransactions(this.currentFilterKey);
         });
       } else {
@@ -1456,6 +1465,7 @@ export class KakeiboApp {
           <div class="micro-label">${accountName} • ${payee ? payee + ' • ' : ''}VIA ${tx.createdBy.toUpperCase()} ${tagsHtml}</div>
         </div>
         <div class="tx-category" data-tx-id="${tx.id}" title="Clique para trocar a categoria">${escapeHtml(catName)}</div>
+        <button type="button" class="pc98-btn tx-cat-mobile" data-tx-id="${tx.id}" title="Trocar categoria">CAT</button>
         <div class="num-currency text-md ${amtClass}" style="text-align: right;">${amtSign}${amtVal}</div>
       `;
 
@@ -1471,12 +1481,14 @@ export class KakeiboApp {
         this.renderJournalTransactions(filterKey);
       });
 
-      row.querySelector('.tx-category')?.addEventListener('click', (e) => {
+      const openCat = (e: Event) => {
         e.stopPropagation();
         pc98Audio.playSelect();
         this.selectedTxId = tx.id;
         void this.quickChangeCategory(tx.id);
-      });
+      };
+      row.querySelector('.tx-category')?.addEventListener('click', openCat);
+      row.querySelector('.tx-cat-mobile')?.addEventListener('click', openCat);
 
       // Clique na linha = editar. Checkbox / categoria têm stopPropagation.
       // ponytail: sem Shift+range; checkbox + SELECIONAR VISÍVEIS cobrem lote até doer
@@ -1521,7 +1533,7 @@ export class KakeiboApp {
 
       const openInsight = () => {
         pc98Audio.playSelect();
-        this.navigateFromInsight(ins.kind);
+        this.navigateFromInsight(ins);
       };
       el.addEventListener('click', openInsight);
       el.addEventListener('keydown', (e) => {
@@ -1535,21 +1547,74 @@ export class KakeiboApp {
     });
   }
 
-  private navigateFromInsight(kind: string) {
-    switch (kind) {
+  private navigateFromInsight(ins: { kind: string; data: Record<string, unknown>; title: string }) {
+    const categoryName = typeof ins.data.category === 'string' ? ins.data.category : null;
+    const categoryId =
+      (typeof ins.data.categoryId === 'string' ? ins.data.categoryId : null) ||
+      (categoryName
+        ? CATEGORIES.find((c) => c.name.toLowerCase() === categoryName.toLowerCase())?.id ?? null
+        : null);
+
+    switch (ins.kind) {
       case 'budget_exceeded':
       case 'budget_at_risk':
-      case 'spend_spike':
+      case 'spend_spike': {
+        if (categoryId) {
+          const cat = CATEGORIES.find((c) => c.id === categoryId);
+          this.selectedCategoryDetail = cat?.parentId ?? categoryId;
+        }
         this.switchTab('category');
         break;
+      }
       case 'invoice_overdue':
+      case 'invoice_due_soon': {
+        const invoiceId = typeof ins.data.invoiceId === 'string' ? ins.data.invoiceId : null;
+        const invoice = invoiceId ? CARD_INVOICES.find((i) => i.id === invoiceId) : null;
+        if (invoice) this.selectedAccountId = invoice.cardAccountId;
         this.switchTab('accounts');
+        this.renderAccounts();
+        setTimeout(() => {
+          document.getElementById('invoices-container')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 80);
         break;
-      case 'duplicate_charge':
+      }
+      case 'possible_duplicate':
+      case 'duplicate_charge': {
+        const ids = Array.isArray(ins.data.ids)
+          ? ins.data.ids.filter((id): id is string => typeof id === 'string')
+          : [];
+        this.journalAccountFilter = null;
+        this.journalSearchQuery = typeof ins.data.description === 'string' ? ins.data.description : '';
+        const searchInput = document.getElementById('journal-search-input') as HTMLInputElement | null;
+        if (searchInput) searchInput.value = this.journalSearchQuery;
+        if (ids[0]) this.selectedTxId = ids[0];
         this.switchTab('transactions');
         break;
-      case 'goal_behind':
+      }
+      case 'goal_behind': {
+        const goalId = typeof ins.data.goalId === 'string' ? ins.data.goalId : null;
+        if (goalId) this.focusedGoalId = goalId;
         this.switchTab('goals');
+        break;
+      }
+      case 'debt_overdue': {
+        this.switchTab('debts');
+        break;
+      }
+      case 'bills_due_week':
+      case 'stale_pending': {
+        this.currentFilterKey = 'scheduled';
+        this.journalAccountFilter = null;
+        this.switchTab('transactions');
+        break;
+      }
+      case 'cash_crunch':
+      case 'income_overcommitted':
+        this.switchTab('reports');
+        break;
+      case 'rules_applicable':
+      case 'rule_suggestions':
+        this.switchTab('rules');
         break;
       default:
         this.switchTab('dashboard');
@@ -1584,24 +1649,46 @@ export class KakeiboApp {
       const freqLabel = rec.freq === 'monthly' ? 'MENSAL' : rec.freq === 'weekly' ? 'SEMANAL' : rec.freq.toUpperCase();
 
       const el = document.createElement('div');
-      el.className = 'pc98-well';
+      el.className = `pc98-well list-card-clickable${this.focusedRecurrenceId === rec.id ? ' is-focused' : ''}`;
       el.style.padding = '8px';
       el.style.marginBottom = '6px';
+      el.setAttribute('role', 'button');
+      el.tabIndex = 0;
 
       el.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <span style="font-weight: bold; color: var(--c-bone-white);">${rec.name}</span>
+            <span style="font-weight: bold; color: var(--c-bone-white);">${escapeHtml(rec.name)}</span>
             <span class="micro-label ${typeClass}">[${typeLabel}]</span>
             ${rec.autoPost ? '<span class="micro-label txt-green">[AUTO]</span>' : '<span class="micro-label txt-amber">[MANUAL]</span>'}
           </div>
           <div class="num-currency ${typeClass}" style="font-size: 16px;">${rec.type === 'expense' ? '-' : '+'}${amount}</div>
         </div>
         <div class="micro-label" style="color: var(--c-grey-blue);">
-          ${accountName} • ${freqLabel} • DIA ${rec.dayOfMonth ?? '—'} • ${getCategoryName(rec.categoryId)}
+          ${escapeHtml(accountName)} • ${freqLabel} • DIA ${rec.dayOfMonth ?? '—'} • ${escapeHtml(getCategoryName(rec.categoryId))}
           ${!rec.amountCents ? ' • <span class="txt-amber">VALOR VARIÁVEL</span>' : ''}
         </div>
       `;
+
+      const open = () => {
+        pc98Audio.playSelect();
+        this.focusedRecurrenceId = rec.id;
+        this.renderRecurrences();
+        void this.openSystemDialog({
+          title: `✦ ${rec.name.toUpperCase()} ✦`,
+          body: `${typeLabel} ${freqLabel}<br/>Conta: <strong>${escapeHtml(accountName)}</strong><br/>Categoria: ${escapeHtml(getCategoryName(rec.categoryId))}<br/>Valor: <strong>${amount}</strong><br/>Modo: ${rec.autoPost ? 'AUTO' : 'MANUAL'}`,
+          confirmLabel: '[OK]',
+          cancelLabel: '',
+          danger: false,
+        });
+      };
+      el.addEventListener('click', open);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
 
       container.appendChild(el);
     });
@@ -1658,13 +1745,15 @@ export class KakeiboApp {
       const isBehind = goal.projectedCompletionDate && goal.targetDate && goal.projectedCompletionDate > goal.targetDate;
 
       const el = document.createElement('div');
-      el.className = 'pc98-well';
+      el.className = `pc98-well list-card-clickable${this.focusedGoalId === goal.id ? ' is-focused' : ''}`;
       el.style.padding = '10px';
       el.style.marginBottom = '8px';
+      el.setAttribute('role', 'button');
+      el.tabIndex = 0;
 
       el.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
-          <span style="font-weight: bold; color: var(--c-bone-white);">${goal.name}</span>
+          <span style="font-weight: bold; color: var(--c-bone-white);">${escapeHtml(goal.name)}</span>
           <span class="micro-label" style="color: ${goal.color};">${goal.accountId ? 'CONTA VINCULADA' : 'CAIXINHA VIRTUAL'}</span>
         </div>
         <div style="display: flex; justify-content: space-between; margin-bottom: 4px;">
@@ -1683,9 +1772,23 @@ export class KakeiboApp {
         </div>
         <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 2px;">
           ${goal.contributionCount} APORTES | ÚLTIMO: ${goal.lastContributionDate ? formatDate(goal.lastContributionDate) : '—'}
-          ${goal.notes ? ` • ${goal.notes}` : ''}
+          ${goal.notes ? ` • ${escapeHtml(goal.notes)}` : ''}
         </div>
       `;
+
+      const open = () => {
+        pc98Audio.playSelect();
+        this.focusedGoalId = goal.id;
+        this.renderGoals();
+        void this.openGoalActions(goal.id);
+      };
+      el.addEventListener('click', open);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
 
       container.appendChild(el);
     });
@@ -1741,23 +1844,50 @@ export class KakeiboApp {
 
     RULES.forEach(rule => {
       const el = document.createElement('div');
-      el.className = 'pc98-well';
+      el.className = `pc98-well list-card-clickable${this.focusedRuleId === rule.id ? ' is-focused' : ''}`;
       el.style.padding = '8px';
       el.style.marginBottom = '6px';
+      el.setAttribute('role', 'button');
+      el.tabIndex = 0;
 
       el.innerHTML = `
         <div style="display: flex; justify-content: space-between; align-items: center;">
           <div>
-            <span style="font-weight: bold; color: var(--c-bone-white);">${rule.name}</span>
+            <span style="font-weight: bold; color: var(--c-bone-white);">${escapeHtml(rule.name)}</span>
             <span class="micro-label ${rule.isEnabled ? 'txt-green' : 'txt-pink'}">[${rule.isEnabled ? 'ATIVA' : 'INATIVA'}]</span>
           </div>
           <span class="micro-label txt-cyan">${rule.matchCount} MATCHES</span>
         </div>
         <div class="micro-label" style="color: var(--c-grey-blue);">
-          SE: ${rule.conditionDescription} → ENTÃO: ${rule.actionCategoryName ?? '—'}
+          SE: ${escapeHtml(rule.conditionDescription)} → ENTÃO: ${escapeHtml(rule.actionCategoryName ?? '—')}
           ${rule.lastMatchedAt ? ` • ÚLTIMO MATCH: ${formatDate(rule.lastMatchedAt)}` : ''}
         </div>
       `;
+
+      const open = () => {
+        pc98Audio.playSelect();
+        this.focusedRuleId = rule.id;
+        this.renderRules();
+        const tester = document.getElementById('rule-test-input') as HTMLInputElement | null;
+        if (tester && rule.conditionRegex) {
+          tester.value = rule.conditionRegex;
+          tester.focus();
+        }
+        void this.openSystemDialog({
+          title: `✦ REGRA: ${rule.name.toUpperCase()} ✦`,
+          body: `Status: <strong>${rule.isEnabled ? 'ATIVA' : 'INATIVA'}</strong><br/>Condição: ${escapeHtml(rule.conditionDescription)}<br/>Categoria: ${escapeHtml(rule.actionCategoryName ?? '—')}<br/>Matches: ${rule.matchCount}`,
+          confirmLabel: '[OK]',
+          cancelLabel: '',
+          danger: false,
+        });
+      };
+      el.addEventListener('click', open);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
 
       container.appendChild(el);
     });
@@ -1817,17 +1947,39 @@ export class KakeiboApp {
       .sort((a, b) => a.date.localeCompare(b.date))
       .slice(0, 5);
 
+    if (upcoming.length === 0) {
+      container.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 4px 0;">Nenhuma conta agendada</div>`;
+      return;
+    }
+
     upcoming.forEach(tx => {
       const el = document.createElement('div');
+      el.className = 'upcoming-bill-row';
+      el.setAttribute('role', 'button');
+      el.tabIndex = 0;
       el.style.display = 'flex';
       el.style.justifyContent = 'space-between';
-      el.style.padding = '4px 0';
+      el.style.padding = '6px 4px';
       el.style.borderBottom = '1px dotted var(--c-grey-blue)';
 
       el.innerHTML = `
-        <span class="micro-label">${formatDate(tx.date)} — ${tx.description}</span>
+        <span class="micro-label">${formatDate(tx.date)} — ${escapeHtml(tx.description)}</span>
         <span class="num-currency ${tx.amountCents > 0 ? 'txt-green' : 'txt-amber'}">${formatMoney(tx.amountCents)}</span>
       `;
+
+      const open = () => {
+        pc98Audio.playSelect();
+        this.selectedTxId = tx.id;
+        this.switchTab('transactions');
+        void this.openTxEdit(tx.id);
+      };
+      el.addEventListener('click', open);
+      el.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
 
       container.appendChild(el);
     });
@@ -1851,8 +2003,7 @@ export class KakeiboApp {
     const picker = document.getElementById('cat-detail-picker');
     if (picker) {
       picker.innerHTML = '';
-      // Show parent categories only
-      const parentCats = CATEGORIES.filter(c => c.parentId === null && c.kind === 'expense');
+      const parentCats = CATEGORIES.filter(c => c.parentId === null && c.kind === 'expense' && !c.isArchived);
       if (!this.selectedCategoryDetail && parentCats[0]) {
         this.selectedCategoryDetail = parentCats[0].id;
       }
@@ -1860,18 +2011,21 @@ export class KakeiboApp {
         const isSelected = cat.id === this.selectedCategoryDetail;
         const iconSvg = this.getCategoryIcon(cat.name);
         const budget = BUDGETS.find(b => b.categoryId === cat.id);
-        const tile = document.createElement('div');
+        const tile = document.createElement('button');
+        tile.type = 'button';
         tile.className = `icon-tile ${isSelected ? 'selected' : ''}`;
         tile.style.display = 'flex';
         tile.style.flexDirection = 'row';
         tile.style.justifyContent = 'flex-start';
         tile.style.padding = '6px';
         tile.style.gap = '8px';
+        tile.style.width = '100%';
+        tile.setAttribute('aria-pressed', isSelected ? 'true' : 'false');
 
         tile.innerHTML = `
           <div style="width: 16px; height: 16px;">${iconSvg}</div>
           <div>
-            <div style="font-size: 13px;">${cat.name}</div>
+            <div style="font-size: 13px;">${escapeHtml(cat.name)}</div>
             ${budget ? `<div class="micro-label">${formatMoney(budget.spentCents)} / ${formatMoney(budget.amountCents)}</div>` : '<div class="micro-label">SEM ORÇAMENTO</div>'}
           </div>
         `;
@@ -1886,24 +2040,107 @@ export class KakeiboApp {
       });
     }
 
-    // Monthly expense dither bars with real data
+    this.renderCategorySelectionDetail();
+
     const breakdownContainer = document.getElementById('cat-breakdown-bars');
     if (breakdownContainer) {
-      const monthLabels = ['FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL'];
-      const maxExpense = Math.max(...MONTHLY_FLOW.map(m => m.expenseCents));
+      const selectedId = this.selectedCategoryDetail;
+      const childIds = new Set(
+        CATEGORIES.filter((c) => c.parentId === selectedId || c.id === selectedId).map((c) => c.id),
+      );
+      const childSpend = new Map<string, number>();
+      for (const tx of this.transactions) {
+        if (tx.type === 'transfer' || !tx.categoryId || !childIds.has(tx.categoryId)) continue;
+        if (tx.amountCents >= 0) continue;
+        childSpend.set(tx.categoryId, (childSpend.get(tx.categoryId) ?? 0) + Math.abs(tx.amountCents));
+      }
+      const rows = [...childSpend.entries()]
+        .map(([id, cents]) => ({ id, name: getCategoryName(id), cents }))
+        .sort((a, b) => b.cents - a.cents)
+        .slice(0, 6);
+      const maxCents = Math.max(1, ...rows.map((r) => r.cents));
 
-      breakdownContainer.innerHTML = MONTHLY_FLOW.map((m, i) => {
-        const heightPct = Math.round((m.expenseCents / maxExpense) * 90);
-        const color = m.netCents >= 0 ? 'cyan' : 'pink';
-        return `
-          <div class="dither-col" style="flex: 1;">
-            <div class="num-currency txt-${color}" style="font-size: 14px;">${formatMoney(m.expenseCents)}</div>
-            <div class="dither-col-bar dither-${color}" style="height: ${heightPct}%;"></div>
-            <div class="micro-label">${monthLabels[i]}</div>
-          </div>
-        `;
-      }).join('');
+      if (rows.length === 0) {
+        breakdownContainer.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue); padding: 8px;">Sem gastos nesta categoria no journal carregado.</div>`;
+      } else {
+        breakdownContainer.innerHTML = rows
+          .map((r) => {
+            const heightPct = Math.round((r.cents / maxCents) * 90);
+            return `
+              <div class="dither-col" style="flex: 1;">
+                <div class="num-currency txt-pink" style="font-size: 12px;">${formatMoney(r.cents)}</div>
+                <div class="dither-col-bar dither-pink" style="height: ${heightPct}%;"></div>
+                <div class="micro-label">${escapeHtml(r.name.slice(0, 8).toUpperCase())}</div>
+              </div>
+            `;
+          })
+          .join('');
+      }
     }
+  }
+
+  private renderCategorySelectionDetail() {
+    const detail = document.getElementById('cat-selection-detail');
+    if (!detail) return;
+    const cat = CATEGORIES.find((c) => c.id === this.selectedCategoryDetail);
+    if (!cat) {
+      detail.innerHTML = `<div class="micro-label" style="color: var(--c-grey-blue);">Selecione uma categoria</div>`;
+      return;
+    }
+
+    const childIds = new Set(
+      CATEGORIES.filter((c) => c.parentId === cat.id || c.id === cat.id).map((c) => c.id),
+    );
+    const related = this.transactions
+      .filter((tx) => tx.categoryId && childIds.has(tx.categoryId) && tx.type !== 'transfer')
+      .sort((a, b) => b.date.localeCompare(a.date));
+    const spent = related.reduce((s, tx) => s + (tx.amountCents < 0 ? Math.abs(tx.amountCents) : 0), 0);
+    const budget = BUDGETS.find((b) => b.categoryId === cat.id);
+    const recent = related.slice(0, 5);
+
+    detail.innerHTML = `
+      <div class="micro-label txt-cyan">CATEGORIA SELECIONADA</div>
+      <div style="font-weight: bold;">${escapeHtml(cat.name)}</div>
+      <div class="micro-label">GASTO (journal): <span class="num-currency txt-pink">${formatMoney(spent)}</span>
+        ${budget ? ` · ORÇAMENTO: ${formatMoney(budget.spentCents)} / ${formatMoney(budget.amountCents)} (${budget.usedPercent}%)` : ' · SEM ORÇAMENTO'}
+      </div>
+      <div class="micro-label" style="color: var(--c-grey-blue); margin-top: 4px;">ÚLTIMOS LANÇAMENTOS</div>
+      ${
+        recent.length === 0
+          ? `<div class="micro-label" style="color: var(--c-grey-blue);">Nenhum lançamento nesta categoria.</div>`
+          : recent
+              .map(
+                (tx) => `
+            <button type="button" class="pc98-btn text-micro cat-detail-tx" data-tx-id="${tx.id}" style="justify-content: space-between; width: 100%; text-align: left; padding: 4px 6px;">
+              <span>${formatDate(tx.date)} · ${escapeHtml(tx.description)}</span>
+              <span class="num-currency">${formatMoney(tx.amountCents)}</span>
+            </button>`,
+              )
+              .join('')
+      }
+      <button type="button" id="btn-cat-to-journal" class="pc98-btn btn-primary text-micro" style="align-self: flex-start; margin-top: 4px;">[VER NO JOURNAL]</button>
+    `;
+
+    detail.querySelectorAll('.cat-detail-tx').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = (btn as HTMLElement).dataset.txId;
+        if (!id) return;
+        pc98Audio.playSelect();
+        this.selectedTxId = id;
+        this.journalAccountFilter = null;
+        this.switchTab('transactions');
+        void this.openTxEdit(id);
+      });
+    });
+    detail.querySelector('#btn-cat-to-journal')?.addEventListener('click', () => {
+      pc98Audio.playSelect();
+      this.journalAccountFilter = null;
+      this.journalSearchQuery = '';
+      const searchInput = document.getElementById('journal-search-input') as HTMLInputElement | null;
+      if (searchInput) searchInput.value = '';
+      this.currentFilterKey = cat.id;
+      this.switchTab('transactions');
+    });
   }
 
   // ── NATURAL LANGUAGE PARSER ───────────────────────────────────────────────
@@ -2078,7 +2315,7 @@ export class KakeiboApp {
     if (!pending || !modal || !diffEl) return;
 
     this.refreshAiRiskModalContent();
-    modal.classList.remove('hidden');
+    this.showModal(modal);
     pc98Audio.playWarning();
 
     const cleanup = (rejected: boolean) => {
@@ -2220,6 +2457,16 @@ export class KakeiboApp {
 
     if (tabId === 'category') {
       setTimeout(() => this.renderCategoryBreakdown(), 50);
+    } else if (tabId === 'transactions') {
+      this.renderJournalTransactions(this.currentFilterKey);
+    } else if (tabId === 'accounts') {
+      this.renderAccounts();
+    } else if (tabId === 'goals') {
+      this.renderGoals();
+    } else if (tabId === 'recurrences') {
+      this.renderRecurrences();
+    } else if (tabId === 'rules') {
+      this.renderRules();
     } else if (tabId === 'add') {
       this.prepareAddForm();
     } else if (tabId === 'dashboard') {
@@ -2275,7 +2522,7 @@ export class KakeiboApp {
       }
     }
 
-    modal.classList.remove('hidden');
+    this.showModal(modal);
     if (options.showInput) inputEl?.focus();
     else confirmBtn.focus();
 
@@ -2317,6 +2564,55 @@ export class KakeiboApp {
       closeBtn?.addEventListener('click', onCancel);
       document.addEventListener('keydown', onKey);
     });
+  }
+
+  /** Empilha modal acima dos já abertos (toast fica sempre por cima via CSS). */
+  private showModal(modal: HTMLElement | null) {
+    if (!modal) return;
+    const openCount = document.querySelectorAll('.modal-backdrop:not(.hidden)').length;
+    modal.style.zIndex = String(10000 + openCount * 20);
+    modal.classList.remove('hidden');
+  }
+
+  /** Fecha só o modal do topo; devolve true se fechou algo. */
+  private closeTopModal(): boolean {
+    const open = [...document.querySelectorAll('.modal-backdrop:not(.hidden)')] as HTMLElement[];
+    if (open.length === 0) return false;
+    open.sort((a, b) => Number(b.style.zIndex || 10000) - Number(a.style.zIndex || 10000));
+    const top = open[0]!;
+    const id = top.id;
+
+    if (id === 'modal-tx-edit') {
+      this.closeTxEdit();
+      return true;
+    }
+    if (id === 'modal-category-picker') {
+      document.getElementById('btn-category-picker-cancel')?.click();
+      return true;
+    }
+    if (id === 'modal-system-dialog') {
+      document.getElementById('btn-system-dialog-cancel')?.click();
+      return true;
+    }
+    if (id === 'modal-ai-risk-confirm' && this.aiRiskReject) {
+      this.aiRiskReject();
+      return true;
+    }
+    if (id === 'modal-category-form') {
+      this.closeCategoryForm();
+      return true;
+    }
+    if (id === 'modal-account-form') {
+      this.closeAccountForm();
+      return true;
+    }
+
+    const closer = top.querySelector(
+      '[id*="-cancel"], [id^="btn-close-"], .win-btn',
+    ) as HTMLElement | null;
+    if (closer) closer.click();
+    else top.classList.add('hidden');
+    return true;
   }
 
   // ── CHAT ──────────────────────────────────────────────────────────────────
@@ -2593,6 +2889,9 @@ export class KakeiboApp {
       unique.has('categorize_transaction') ||
       unique.has('bulk_categorize')
     ) {
+      // Mostra o resultado: limpa filtro de conta que esconderia o lançamento novo.
+      this.journalAccountFilter = null;
+      this.currentFilterKey = 'all';
       if (this.activeTab !== 'transactions') this.switchTab('transactions');
       else this.renderJournalTransactions(this.currentFilterKey);
       return;
@@ -2730,7 +3029,7 @@ export class KakeiboApp {
     if (nameInput) nameInput.value = '';
     if (kindSelect) kindSelect.value = 'expense';
     this.syncCategoryParentOptions();
-    modal?.classList.remove('hidden');
+    this.showModal(modal);
     nameInput?.focus();
   }
 
@@ -2839,7 +3138,7 @@ export class KakeiboApp {
     clearBtn?.classList.toggle('hidden', options.allowClear === false);
 
     this.renderCategoryPickerList(kind, '');
-    modal.classList.remove('hidden');
+    this.showModal(modal);
     searchEl?.focus();
 
     return new Promise((resolve) => {
@@ -3004,7 +3303,7 @@ export class KakeiboApp {
     if (tags) tags.value = getTagNames(tx.tagIds).join(', ');
 
     this.syncTxEditCategoryLabel();
-    modal?.classList.remove('hidden');
+    this.showModal(modal);
     description?.focus();
   }
 
@@ -3106,6 +3405,55 @@ export class KakeiboApp {
     }
   }
 
+  private async openGoalActions(goalId: string, fromAccountId?: string) {
+    const goal = GOALS.find((g) => g.id === goalId);
+    if (!goal) return;
+
+    const amountText = await this.openSystemDialog({
+      title: `✦ APORTAR: ${goal.name.toUpperCase()} ✦`,
+      body: `Progresso: <strong>${formatMoney(goal.savedCents)}</strong> / ${formatMoney(goal.targetCents)} (${Math.round(goal.progressPercent)}%)<br/><br/>Valor do aporte (R$):`,
+      confirmLabel: '[APORTAR]',
+      cancelLabel: '[FECHAR]',
+      showInput: true,
+      promptDefault: goal.requiredMonthlyCents
+        ? (goal.requiredMonthlyCents / 100).toFixed(2)
+        : '100',
+      danger: false,
+    });
+    if (typeof amountText !== 'string' || !amountText.trim()) return;
+
+    const amountNumber = Number(amountText.replace(',', '.'));
+    if (!Number.isFinite(amountNumber) || amountNumber <= 0) {
+      this.notify('Informe um valor válido.', 'warn');
+      return;
+    }
+
+    const accountId =
+      fromAccountId ||
+      goal.accountId ||
+      ACCOUNTS.find((a) => a.kind === 'checking')?.id ||
+      ACCOUNTS[0]?.id;
+    if (!accountId) {
+      this.notify('Crie uma conta antes de aportar.', 'warn');
+      return;
+    }
+
+    try {
+      const result = await api.contributeToGoal(goal.id, {
+        amountCents: Math.round(amountNumber * 100),
+        fromAccountId: accountId,
+        date: TODAY,
+      });
+      await this.reloadAfterWrite(`Aporte em "${goal.name}" registrado.`, result.changeSetId);
+      this.switchTab('goals');
+    } catch (error) {
+      this.notify(
+        error instanceof ApiError ? error.message : `Falha no aporte: ${String(error)}`,
+        'error',
+      );
+    }
+  }
+
   private async submitCategoryForm() {
     const nameInput = document.getElementById('category-input-name') as HTMLInputElement | null;
     const kindSelect = document.getElementById('category-input-kind') as HTMLSelectElement | null;
@@ -3178,6 +3526,12 @@ export class KakeiboApp {
       (document.getElementById('form-full-add-tx') as HTMLFormElement | null)?.reset();
       this.prepareAddForm();
       await this.reloadAfterWrite('Lançamento registrado.', result.changeSetId);
+      this.selectedTxId = result.data.id;
+      this.journalAccountFilter = accountId;
+      this.currentFilterKey = 'all';
+      this.journalSearchQuery = '';
+      const searchInput = document.getElementById('journal-search-input') as HTMLInputElement | null;
+      if (searchInput) searchInput.value = '';
       this.switchTab('transactions');
     } catch (error) {
       this.notify(
@@ -3255,7 +3609,7 @@ export class KakeiboApp {
     setTimeout(() => toast.remove(), timeout);
   }
 
-  // ── IMPORTER SIMULATION ───────────────────────────────────────────────────
+  // ── IMPORTER (honesto: histórico real; upload ainda não implementado) ─────
 
   private startImporterSimulation(filename: string) {
     const progressBox = document.getElementById('importer-progress-box');
@@ -3269,27 +3623,30 @@ export class KakeiboApp {
 
     progressBox.classList.remove('hidden');
     if (parsedResults) parsedResults.classList.add('hidden');
-    statusText.textContent = `PARSANDO ARQUIVO ${filename.toUpperCase()}...`;
+    statusText.textContent = `ARQUIVO: ${filename.toUpperCase()}`;
     ditherBar.style.setProperty('--progress', '0');
-    statusPct.textContent = '0%';
+    statusPct.textContent = '—';
     progressbar?.setAttribute('aria-valuenow', '0');
 
-    let currentPct = 0;
-    const interval = setInterval(() => {
-      currentPct += Math.floor(Math.random() * 18) + 12;
-      if (currentPct >= 100) {
-        currentPct = 100;
-        clearInterval(interval);
-        pc98Audio.playSelect();
-        statusText.textContent = `EXTRATO ${filename.toUpperCase()} PARSADO COM SUCESSO!`;
-        if (parsedResults) parsedResults.classList.remove('hidden');
-      } else {
-        pc98Audio.playTypewriter();
+    // ponytail: sem parser real ainda; não inventar sucesso
+    statusText.textContent = `IMPORTAÇÃO DE "${filename.toUpperCase()}" AINDA NÃO ESTÁ PRONTA`;
+    ditherBar.style.setProperty('--progress', '0');
+    if (parsedResults) {
+      parsedResults.classList.remove('hidden');
+      const summary = document.getElementById('parsed-summary-text');
+      if (summary) {
+        summary.innerHTML =
+          'O upload/parse de extrato ainda não está ligado à API.<br/>' +
+          'O histórico abaixo mostra importações reais já aplicadas.<br/>' +
+          'Por agora, lance manualmente ou peça à IA.';
       }
-      ditherBar.style.setProperty('--progress', String(currentPct / 100));
-      statusPct.textContent = `${currentPct}%`;
-      progressbar?.setAttribute('aria-valuenow', String(currentPct));
-    }, 150);
+      const confirmBtn = document.getElementById('btn-confirm-import-rows');
+      if (confirmBtn) {
+        confirmBtn.textContent = '[IR AO JOURNAL]';
+        confirmBtn.classList.remove('btn-gold');
+      }
+    }
+    this.notify('Importação de arquivo ainda não disponível.', 'warn');
   }
 
   // ── EVENTS ────────────────────────────────────────────────────────────────
@@ -3313,27 +3670,18 @@ export class KakeiboApp {
       else if (e.key.toLowerCase() === 'm') this.switchTab('goals');
       else if (e.key.toLowerCase() === 'g') this.switchTab('rules');
       else if (e.key.toLowerCase() === 'f') this.switchTab('reports');
+      else if (e.key.toLowerCase() === 'p') {
+        document.getElementById('btn-open-profile')?.click();
+      } else if (e.key === '+' || e.key === '=') {
+        this.switchTab('add');
+      }
       else if (e.key === 'F1') {
         e.preventDefault();
         const helpModal = document.getElementById('modal-help-guide');
-        helpModal?.classList.toggle('hidden');
+        if (helpModal?.classList.contains('hidden')) this.showModal(helpModal);
+        else helpModal?.classList.add('hidden');
       } else if (e.key === 'Escape') {
-        if (this.aiRiskReject) {
-          this.aiRiskReject();
-          return;
-        }
-        // Diálogos com Promise própria tratam Escape nos listeners deles.
-        const pickerOpen = !document.getElementById('modal-category-picker')?.classList.contains('hidden');
-        const systemOpen = !document.getElementById('modal-system-dialog')?.classList.contains('hidden');
-        if (pickerOpen || systemOpen) return;
-
-        const txEdit = document.getElementById('modal-tx-edit');
-        if (txEdit && !txEdit.classList.contains('hidden')) {
-          this.closeTxEdit();
-          return;
-        }
-
-        document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
+        if (this.closeTopModal()) return;
         if (window.matchMedia('(max-width: 1100px)').matches) {
           this.setAiDockOpen(false);
         }
@@ -3401,9 +3749,17 @@ export class KakeiboApp {
       });
       if (ok) {
         const ids = [...this.selectedJournalTxIds];
-        await Promise.allSettled(ids.map((id) => api.deleteTransaction(id)));
+        const results = await Promise.allSettled(ids.map((id) => api.deleteTransaction(id)));
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        const deleted = ids.length - failed;
         this.selectedJournalTxIds.clear();
-        await this.reloadAfterWrite(`${ids.length} lançamento(s) excluído(s).`);
+        if (this.selectedTxId && ids.includes(this.selectedTxId)) this.selectedTxId = '';
+        await this.reloadAfterWrite(
+          failed > 0
+            ? `${deleted} excluído(s), ${failed} falhou(aram).`
+            : `${deleted} lançamento(s) excluído(s).`,
+        );
+        if (failed > 0) this.notify(`${failed} exclusão(ões) falharam.`, 'warn');
       }
     });
 
@@ -3550,7 +3906,7 @@ export class KakeiboApp {
     const confirmSacPriceBtn = document.getElementById('btn-close-sac-price-confirm');
     const sacPriceModal = document.getElementById('modal-sac-price-help');
 
-    openSacPriceBtn?.addEventListener('click', () => { pc98Audio.playClick(); sacPriceModal?.classList.remove('hidden'); });
+    openSacPriceBtn?.addEventListener('click', () => { pc98Audio.playClick(); this.showModal(sacPriceModal); });
     closeSacPriceBtn?.addEventListener('click', () => { pc98Audio.playClick(); sacPriceModal?.classList.add('hidden'); });
     confirmSacPriceBtn?.addEventListener('click', () => { pc98Audio.playClick(); sacPriceModal?.classList.add('hidden'); });
 
@@ -3571,13 +3927,6 @@ export class KakeiboApp {
 
     confirmImportRowsBtn?.addEventListener('click', async () => {
       pc98Audio.playClick();
-      await this.openSystemDialog({
-        title: '✦ IMPORTAÇÃO CONCLUÍDA ✦',
-        body: '14 novas transações foram incorporadas ao Journal com sucesso.',
-        confirmLabel: '[ABRIR JOURNAL]',
-        cancelLabel: '',
-        danger: false
-      });
       this.switchTab('transactions');
     });
 
@@ -3615,7 +3964,7 @@ export class KakeiboApp {
     const openProfile = () => {
       pc98Audio.playClick();
       if (usernameInput) usernameInput.value = this.userName;
-      profileModal?.classList.remove('hidden');
+      this.showModal(profileModal);
     };
 
     profileBtn?.addEventListener('click', openProfile);
@@ -3709,7 +4058,7 @@ export class KakeiboApp {
     const closeHelpBtn = document.getElementById('btn-close-help');
     const confirmHelpBtn = document.getElementById('btn-close-help-confirm');
 
-    helpBtn?.addEventListener('click', () => { pc98Audio.playClick(); helpModal?.classList.remove('hidden'); });
+    helpBtn?.addEventListener('click', () => { pc98Audio.playClick(); this.showModal(helpModal); });
     closeHelpBtn?.addEventListener('click', () => { pc98Audio.playClick(); helpModal?.classList.add('hidden'); });
     confirmHelpBtn?.addEventListener('click', () => { pc98Audio.playClick(); helpModal?.classList.add('hidden'); });
 

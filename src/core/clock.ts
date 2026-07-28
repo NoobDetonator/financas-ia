@@ -48,10 +48,6 @@ export function resetClock(): void {
   nowProvider = () => new Date();
 }
 
-export function nowDate(): Date {
-  return nowProvider();
-}
-
 /** Timestamp atual em UTC ISO. É o formato gravado em todo `created_at`. */
 export function nowIso(): IsoDateTime {
   return nowProvider().toISOString();
@@ -183,10 +179,6 @@ export function addMonths(iso: IsoDate, months: number): IsoDate {
   return makeDate(y, m, clampDay(y, m, day));
 }
 
-export function addYears(iso: IsoDate, years: number): IsoDate {
-  return addMonths(iso, years * 12);
-}
-
 export function startOfMonth(iso: IsoDate): IsoDate {
   const { year, month } = parseDate(iso);
   return makeDate(year, month, 1);
@@ -222,18 +214,6 @@ export const isBefore = (a: IsoDate, b: IsoDate): boolean => compareDate(a, b) <
 export const isAfter = (a: IsoDate, b: IsoDate): boolean => compareDate(a, b) > 0;
 export const isSameOrBefore = (a: IsoDate, b: IsoDate): boolean => compareDate(a, b) <= 0;
 export const isSameOrAfter = (a: IsoDate, b: IsoDate): boolean => compareDate(a, b) >= 0;
-
-export function minDate(...dates: IsoDate[]): IsoDate {
-  return dates.reduce((acc, d) => (isBefore(d, acc) ? d : acc));
-}
-
-export function maxDate(...dates: IsoDate[]): IsoDate {
-  return dates.reduce((acc, d) => (isAfter(d, acc) ? d : acc));
-}
-
-export function isWithin(iso: IsoDate, start: IsoDate, end: IsoDate): boolean {
-  return isSameOrAfter(iso, start) && isSameOrBefore(iso, end);
-}
 
 /** Dia da semana: 0 = domingo … 6 = sábado. */
 export function weekday(iso: IsoDate): number {

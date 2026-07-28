@@ -88,7 +88,8 @@ describe('sistema', () => {
   });
 
   test('rota inexistente devolve 404 com corpo padronizado', async () => {
-    const { status, body } = await get('/nao-existe');
+    // Prefixo `/api` nunca cai no fallback SPA — mesmo com `web/dist` presente.
+    const { status, body } = await get('/api/nao-existe');
     assert.equal(status, 404);
     assert.equal(body.error, 'NOT_FOUND');
   });

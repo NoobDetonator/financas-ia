@@ -310,20 +310,6 @@ export interface Transaction {
   updatedAt: string;
 }
 
-export interface TransactionSplit {
-  id: string;
-  transactionId: string;
-  categoryId: string;
-  amountCents: number;
-  note: string | null;
-}
-
-export interface TransactionDetail extends Transaction {
-  splits: TransactionSplit[];
-  tags: Tag[];
-  attachmentCount: number;
-}
-
 export interface TransactionPage {
   items: Transaction[];
   total: number;
@@ -775,7 +761,6 @@ export const api = {
   // Transações
   transactions: (query: Record<string, string | number | boolean | undefined> = {}) =>
     request<TransactionPage>('/transactions', { query }),
-  transaction: (id: string) => request<TransactionDetail>(`/transactions/${id}`),
   createTransaction: (body: unknown) => request<WriteResult<Transaction>>('/transactions', { method: 'POST', body }),
   updateTransaction: (id: string, body: unknown) =>
     request<WriteResult<Transaction>>(`/transactions/${id}`, { method: 'PATCH', body }),

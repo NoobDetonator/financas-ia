@@ -875,13 +875,11 @@ export const settings = sqliteTable('settings', {
 // ── Tipos inferidos ─────────────────────────────────────────────────────────
 
 export type Account = typeof accounts.$inferSelect;
-export type NewAccount = typeof accounts.$inferInsert;
 export type CreditCard = typeof creditCards.$inferSelect;
 export type Category = typeof categories.$inferSelect;
 export type Payee = typeof payees.$inferSelect;
 export type Tag = typeof tags.$inferSelect;
 export type Transaction = typeof transactions.$inferSelect;
-export type NewTransaction = typeof transactions.$inferInsert;
 export type TransactionSplit = typeof transactionSplits.$inferSelect;
 export type CardInvoice = typeof cardInvoices.$inferSelect;
 export type InstallmentPlan = typeof installmentPlans.$inferSelect;
@@ -897,12 +895,8 @@ export type PositionSnapshot = typeof positionSnapshots.$inferSelect;
 export type Rule = typeof rules.$inferSelect;
 export type ImportBatch = typeof importBatches.$inferSelect;
 export type ImportRow = typeof importRows.$inferSelect;
-export type Attachment = typeof attachments.$inferSelect;
 export type ChangeSet = typeof changeSets.$inferSelect;
-export type AuditEntry = typeof auditLog.$inferSelect;
 export type AiConversation = typeof aiConversations.$inferSelect;
-export type AiMessage = typeof aiMessages.$inferSelect;
-export type AiAction = typeof aiActions.$inferSelect;
 export type Insight = typeof insights.$inferSelect;
 export type Report = typeof reports.$inferSelect;
 export type Settings = typeof settings.$inferSelect;

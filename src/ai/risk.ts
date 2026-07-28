@@ -33,15 +33,14 @@ export type ToolRiskPolicy =
  *
  * A leitura desta tabela é a resposta para "o que a IA pode fazer sem me pedir".
  */
+/**
+ * Só ferramentas de escrita reais de `buildTools`. Nomes fantasmas aqui
+ * vazavam em `/ai/status` como se a IA pudesse fazê-los.
+ */
 export const TOOL_RISK: Record<string, ToolRiskPolicy> = {
   // ── Sempre automático ────────────────────────────────────────────────────
   categorize_transaction: { kind: 'always_auto' },
-  add_tags: { kind: 'always_auto' },
-  set_notes: { kind: 'always_auto' },
-  create_category: { kind: 'always_auto' },
-  create_payee: { kind: 'always_auto' },
   confirm_occurrence: { kind: 'always_auto' },
-  record_investment_snapshot: { kind: 'always_auto' },
   // Criar meta não movimenta dinheiro — é só um alvo, e apagar não afeta saldo.
   create_goal: { kind: 'always_auto' },
 
@@ -52,7 +51,6 @@ export const TOOL_RISK: Record<string, ToolRiskPolicy> = {
   create_installment_plan: { kind: 'amount_threshold', amountField: 'totalCents' },
   contribute_to_goal: { kind: 'amount_threshold', amountField: 'amountCents' },
   pay_card_invoice: { kind: 'amount_threshold', amountField: 'amountCents' },
-  pay_debt_installment: { kind: 'amount_threshold', amountField: 'amountCents' },
 
   // ── Depende da quantidade de linhas ──────────────────────────────────────
   bulk_categorize: { kind: 'row_threshold', countField: 'transactionIds' },
@@ -63,41 +61,9 @@ export const TOOL_RISK: Record<string, ToolRiskPolicy> = {
     kind: 'always_confirm',
     reason: 'Exclusão de lançamento é sempre confirmada.',
   },
-  delete_recurrence: {
-    kind: 'always_confirm',
-    reason: 'Excluir uma recorrência afeta todos os lançamentos futuros dela.',
-  },
-  delete_goal: { kind: 'always_confirm', reason: 'Exclusão de meta é sempre confirmada.' },
-  delete_debt: { kind: 'always_confirm', reason: 'Exclusão de dívida é sempre confirmada.' },
-  delete_budget: { kind: 'always_confirm', reason: 'Exclusão de orçamento é sempre confirmada.' },
-  delete_category: { kind: 'always_confirm', reason: 'Exclusão de categoria é sempre confirmada.' },
-  cancel_installment_plan: {
-    kind: 'always_confirm',
-    reason: 'Cancelar um parcelamento remove as parcelas futuras.',
-  },
-  create_recurrence: {
-    kind: 'always_confirm',
-    reason: 'Uma recorrência gera lançamentos por tempo indeterminado.',
-  },
   set_budget: {
     kind: 'always_confirm',
     reason: 'Definir orçamento muda como o mês inteiro é avaliado.',
-  },
-  create_debt: {
-    kind: 'always_confirm',
-    reason: 'Registrar uma dívida cria um cronograma completo de parcelas.',
-  },
-  revert_import: {
-    kind: 'always_confirm',
-    reason: 'Reverter uma importação remove todos os lançamentos do lote.',
-  },
-  apply_import: {
-    kind: 'always_confirm',
-    reason: 'Aplicar uma importação cria muitos lançamentos de uma vez.',
-  },
-  undo_change_set: {
-    kind: 'always_confirm',
-    reason: 'Desfazer é uma operação sobre o histórico.',
   },
 };
 
@@ -197,11 +163,6 @@ export function assessRisk(
       return { level: 'auto', reason: null, unknownTool: false };
     }
   }
-}
-
-/** A ferramenta escreve no banco? Ferramentas de leitura não passam pelo risco. */
-export function isWriteTool(tool: string): boolean {
-  return tool in TOOL_RISK;
 }
 
 /** Lista das ferramentas por nível, para exibir na configuração. */

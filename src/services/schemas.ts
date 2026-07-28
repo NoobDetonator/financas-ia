@@ -59,19 +59,6 @@ export const paginationSchema = z.object({
 
 export type Pagination = z.infer<typeof paginationSchema>;
 
-/** Metadados de listagem paginada. */
-export const pageMetaSchema = z.object({
-  total: z.number().int(),
-  limit: z.number().int(),
-  offset: z.number().int(),
-});
-
-/** Envelope devolvido por rotas de escrita — permite oferecer "desfazer". */
-export const writeMetaSchema = z.object({
-  changeSetId: z.string().describe('Use em POST /change-sets/{id}/undo para reverter'),
-  touched: z.number().int().describe('Linhas afetadas'),
-});
-
 export const colorSchema = z
   .string()
   .regex(/^#[0-9a-fA-F]{6}$/, 'Cor deve estar no formato #RRGGBB')

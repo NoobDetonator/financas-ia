@@ -62,7 +62,7 @@ if not exist "web\dist\index.html" (
 
 REM O servidor recusa subir com a senha de exemplo. Avisa antes, com a mensagem
 REM certa, em vez de deixar o erro aparecer no meio do log.
-node -e "require('dotenv').config({quiet:true});const p=(process.env.APP_PASSWORD||'').trim();const off=String(process.env.AUTH_DISABLED).toLowerCase()==='true';if(!off&&(p===''||p==='troque-esta-senha')){console.error('  [ERRO] Defina APP_PASSWORD no arquivo .env antes de iniciar.');process.exit(1)}" 2>nul
+node --env-file-if-exists=.env -e "const p=(process.env.APP_PASSWORD||'').trim();const off=String(process.env.AUTH_DISABLED).toLowerCase()==='true';if(!off&&(p===''||p==='troque-esta-senha')){console.error('  [ERRO] Defina APP_PASSWORD no arquivo .env antes de iniciar.');process.exit(1)}" 2>nul
 if errorlevel 1 (
     echo.
     pause
@@ -70,10 +70,10 @@ if errorlevel 1 (
 )
 
 REM --- Descobre a porta e o endereco -----------------------------------------
-for /f "tokens=*" %%p in ('node -e "require(''dotenv'').config({quiet:true});process.stdout.write(String(process.env.PORT||3333))" 2^>nul') do set PORT=%%p
+for /f "tokens=*" %%p in ('node --env-file-if-exists=.env -e "process.stdout.write(String(process.env.PORT||3333))" 2^>nul') do set PORT=%%p
 if "!PORT!"=="" set PORT=3333
 
-for /f "tokens=*" %%h in ('node -e "require(''dotenv'').config({quiet:true});const h=process.env.HOST||''127.0.0.1'';process.stdout.write(h===''0.0.0.0''?''127.0.0.1'':h)" 2^>nul') do set VIEWHOST=%%h
+for /f "tokens=*" %%h in ('node --env-file-if-exists=.env -e "const h=process.env.HOST||''127.0.0.1'';process.stdout.write(h===''0.0.0.0''?''127.0.0.1'':h)" 2^>nul') do set VIEWHOST=%%h
 if "!VIEWHOST!"=="" set VIEWHOST=127.0.0.1
 
 echo  Iniciando em http://!VIEWHOST!:!PORT!

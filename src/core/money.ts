@@ -188,55 +188,7 @@ export function splitEvenly(total: number, parts: number): number[] {
   return Array.from({ length: parts }, (_unused, i) => sign * (base + (i < remainder ? 1 : 0)));
 }
 
-/**
- * Rateia um total segundo pesos, garantindo somatório exato.
- * Usado em divisão de compra entre categorias.
- */
-export function splitByWeights(total: number, weights: readonly number[]): number[] {
-  assertCents(total, 'total a ratear');
-  if (weights.length === 0) throw new MoneyError('Nenhum peso informado.');
-  if (weights.some((w) => w < 0)) throw new MoneyError('Pesos não podem ser negativos.');
-
-  const totalWeight = weights.reduce((a, b) => a + b, 0);
-  if (totalWeight <= 0) throw new MoneyError('A soma dos pesos deve ser maior que zero.');
-
-  const sign = total < 0 ? -1 : 1;
-  const abs = Math.abs(total);
-
-  const raw = weights.map((w) => Math.floor((abs * w) / totalWeight));
-  let distributed = raw.reduce((a, b) => a + b, 0);
-
-  // Distribui a sobra de centavos para os maiores pesos primeiro.
-  const order = weights
-    .map((w, i) => ({ w, i }))
-    .sort((a, b) => b.w - a.w || a.i - b.i);
-
-  let cursor = 0;
-  while (distributed < abs) {
-    const slot = order[cursor % order.length];
-    if (slot === undefined) break;
-    raw[slot.i] = (raw[slot.i] ?? 0) + 1;
-    distributed += 1;
-    cursor += 1;
-  }
-
-  return raw.map((v) => sign * v);
-}
-
-/** Aplica uma taxa em basis points (1 bp = 0,01%). `1000 bps` = 10%. */
-export function applyBps(cents: number, bps: number): number {
-  assertCents(cents);
-  if (!Number.isFinite(bps)) throw new MoneyError(`Taxa inválida: ${bps}`);
-  return roundHalf((cents * bps) / 10_000);
-}
-
 /** Arredondamento meio-para-cima em magnitude (simétrico para negativos). */
 export function roundHalf(value: number): number {
   return value < 0 ? -Math.round(-value) : Math.round(value);
-}
-
-/** Converte centavos em número decimal. **Use só para exibição/serialização externa.** */
-export function centsToNumber(cents: number): number {
-  assertCents(cents);
-  return cents / CENTS_PER_UNIT;
 }

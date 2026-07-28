@@ -83,15 +83,6 @@ export function getTransfer(transferId: string, db: Db = getDb()): TransferPair 
   return { transferId, out: outLeg, in: inLeg };
 }
 
-/** Localiza a transferência a partir de qualquer uma das pernas. */
-export function getTransferByTransaction(transactionId: string, db: Db = getDb()): TransferPair {
-  const tx = getTransaction(transactionId, db);
-  if (!tx.transferId) {
-    throw ruleViolation(`A transação "${tx.description}" não é uma transferência.`, { transactionId });
-  }
-  return getTransfer(tx.transferId, db);
-}
-
 // ── Escrita ─────────────────────────────────────────────────────────────────
 
 type TransferLinks = Partial<Pick<Transaction, 'cardInvoiceId' | 'goalId' | 'debtId' | 'createdBy'>>;

@@ -86,7 +86,7 @@ describe('classificação de risco', () => {
 
   test('operações leves são automáticas', () => {
     assert.equal(assessRisk('categorize_transaction', {}, thresholds).level, 'auto');
-    assert.equal(assessRisk('add_tags', {}, thresholds).level, 'auto');
+    assert.equal(assessRisk('create_goal', {}, thresholds).level, 'auto');
     assert.equal(assessRisk('confirm_occurrence', {}, thresholds).level, 'auto');
   });
 

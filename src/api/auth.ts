@@ -109,11 +109,6 @@ function verifyToken(token: string | undefined): boolean {
   return Number.isFinite(expiresAt) && expiresAt > Date.now();
 }
 
-export interface AuthState {
-  enabled: boolean;
-  reason?: string;
-}
-
 /**
  * Plugin de autenticação.
  *

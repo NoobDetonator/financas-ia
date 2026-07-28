@@ -4,9 +4,7 @@ import {
   parseMoney,
   formatMoney,
   splitEvenly,
-  splitByWeights,
   sumCents,
-  applyBps,
   MoneyError,
 } from '../../src/core/money.js';
 
@@ -127,45 +125,6 @@ describe('splitEvenly', () => {
     assert.throws(() => splitEvenly(1000, 0), MoneyError);
     assert.throws(() => splitEvenly(1000, -3), MoneyError);
     assert.throws(() => splitEvenly(1000, 2.5), MoneyError);
-  });
-});
-
-describe('splitByWeights', () => {
-  test('rateia proporcionalmente', () => {
-    assert.deepEqual(splitByWeights(10_000, [1, 1]), [5000, 5000]);
-    assert.deepEqual(splitByWeights(10_000, [3, 1]), [7500, 2500]);
-  });
-
-  test('sobra vai para o maior peso e a soma fecha', () => {
-    const slices = splitByWeights(10_000, [1, 1, 1]);
-    assert.equal(sumCents(slices), 10_000);
-    assert.deepEqual(slices, [3334, 3333, 3333]);
-  });
-
-  test('a soma fecha para qualquer combinação', () => {
-    const cases: number[][] = [[1, 2, 3], [7, 11], [1, 1, 1, 1, 1, 1, 1], [99, 1], [5]];
-    for (const weights of cases) {
-      for (let total = 1; total <= 999; total += 13) {
-        assert.equal(sumCents(splitByWeights(total, weights)), total, `total=${total} w=${weights}`);
-      }
-    }
-  });
-
-  test('recusa pesos inválidos', () => {
-    assert.throws(() => splitByWeights(1000, []), MoneyError);
-    assert.throws(() => splitByWeights(1000, [0, 0]), MoneyError);
-    assert.throws(() => splitByWeights(1000, [-1, 2]), MoneyError);
-  });
-});
-
-describe('applyBps', () => {
-  test('aplica taxa em basis points', () => {
-    assert.equal(applyBps(100_000, 1000), 10_000); // 10%
-    assert.equal(applyBps(100_000, 125), 1250); // 1,25%
-  });
-
-  test('arredonda simetricamente para negativos', () => {
-    assert.equal(applyBps(-100_000, 1000), -10_000);
   });
 });
 

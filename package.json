@@ -35,7 +35,6 @@
     "ai": "^7.0.37",
     "better-sqlite3": "~12.6.2",
     "csv-parse": "^6.1.0",
-    "dotenv": "^17.3.1",
     "drizzle-orm": "^0.45.2",
     "drizzle-zod": "^0.8.3",
     "fastify": "^5.10.0",

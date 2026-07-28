@@ -79,18 +79,6 @@ export function isId(value: unknown): value is string {
   return typeof value === 'string' && value.length === ID_LEN && ID_RE.test(value);
 }
 
-/** Extrai o instante de criação embutido no ID. Útil para depuração. */
-export function idTimestamp(id: string): Date {
-  if (!isId(id)) throw new Error(`ID inválido: "${id}"`);
-  let ms = 0;
-  for (const char of id.slice(0, TIME_LEN)) {
-    const index = ENCODING.indexOf(char);
-    if (index < 0) throw new Error(`ID inválido: "${id}"`);
-    ms = ms * ENCODING_LEN + index;
-  }
-  return new Date(ms);
-}
-
 /**
  * Chave curta e estável derivada de um texto — usada em deduplicação de
  * importação e em fingerprint de insight.

@@ -1343,6 +1343,33 @@ export class KakeiboApp {
 
   // ── JOURNAL — uses new Transaction model with status/tags/payees ──────────
 
+  /** Linhas do journal após filtros ativos (conta / tipo / busca). */
+  private journalVisibleTxs(filterKey: string = this.currentFilterKey): Transaction[] {
+    return this.transactions.filter((tx) => {
+      if (tx.type === 'transfer') return false;
+      if (this.selectedAccountId && tx.accountId !== this.selectedAccountId) return false;
+
+      let matchesFilter = true;
+      if (filterKey === 'income') matchesFilter = tx.amountCents > 0;
+      else if (filterKey === 'expense') matchesFilter = tx.amountCents < 0;
+      else if (filterKey === 'scheduled') matchesFilter = tx.status === 'scheduled';
+      else if (filterKey !== 'all') matchesFilter = tx.categoryId === filterKey;
+
+      if (matchesFilter && this.journalSearchQuery.trim() !== '') {
+        const query = this.journalSearchQuery.toLowerCase();
+        const catName = getCategoryName(tx.categoryId).toLowerCase();
+        const payee = getPayeeName(tx.payeeId).toLowerCase();
+        matchesFilter =
+          tx.description.toLowerCase().includes(query) ||
+          catName.includes(query) ||
+          payee.includes(query) ||
+          tx.date.includes(query);
+      }
+
+      return matchesFilter;
+    });
+  }
+
   private renderJournalTransactions(filterKey: string = 'all') {
     const container = document.getElementById('journal-rows-container');
     const batchBar = document.getElementById('journal-batch-bar');
@@ -1378,27 +1405,12 @@ export class KakeiboApp {
       }
     }
 
-    const filtered = this.transactions.filter(tx => {
-      // Exclude transfers from journal view
-      if (tx.type === 'transfer') return false;
+    const filtered = this.journalVisibleTxs(filterKey);
 
-      if (this.selectedAccountId && tx.accountId !== this.selectedAccountId) return false;
-
-      let matchesFilter = true;
-      if (filterKey === 'income') matchesFilter = tx.amountCents > 0;
-      else if (filterKey === 'expense') matchesFilter = tx.amountCents < 0;
-      else if (filterKey === 'scheduled') matchesFilter = tx.status === 'scheduled';
-      else if (filterKey !== 'all') matchesFilter = tx.categoryId === filterKey;
-
-      if (matchesFilter && this.journalSearchQuery.trim() !== '') {
-        const query = this.journalSearchQuery.toLowerCase();
-        const catName = getCategoryName(tx.categoryId).toLowerCase();
-        const payee = getPayeeName(tx.payeeId).toLowerCase();
-        matchesFilter = tx.description.toLowerCase().includes(query) || catName.includes(query) || payee.includes(query) || tx.date.includes(query);
-      }
-
-      return matchesFilter;
-    });
+    // Descarta ids que sumiram do filtro atual (busca/conta mudou).
+    for (const id of [...this.selectedJournalTxIds]) {
+      if (!filtered.some((tx) => tx.id === id)) this.selectedJournalTxIds.delete(id);
+    }
 
     if (batchBar && selectedCountEl) {
       if (this.selectedJournalTxIds.size > 0) {
@@ -1435,7 +1447,7 @@ export class KakeiboApp {
 
       row.innerHTML = `
         <div style="width: 24px; text-align: center;">
-          <input type="checkbox" class="tx-batch-checkbox" data-tx-id="${tx.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer;" />
+          <input type="checkbox" class="tx-batch-checkbox" data-tx-id="${tx.id}" ${isChecked ? 'checked' : ''} style="cursor: pointer;" title="Selecionar para lote" />
         </div>
         <div style="width: 16px; height: 16px;">${iconSvg}</div>
         <div>${formatDate(tx.date)}</div>
@@ -1466,15 +1478,9 @@ export class KakeiboApp {
         void this.quickChangeCategory(tx.id);
       });
 
+      // Clique na linha = editar. Checkbox / categoria têm stopPropagation.
+      // ponytail: sem Shift+range; checkbox + SELECIONAR VISÍVEIS cobrem lote até doer
       row.addEventListener('click', (e) => {
-        if ((e.target as HTMLElement).tagName === 'INPUT') return;
-        if ((e.target as HTMLElement).closest('.tx-category')) return;
-        pc98Audio.playSelect();
-        this.selectedTxId = tx.id;
-        this.renderJournalTransactions(filterKey);
-      });
-
-      row.addEventListener('dblclick', (e) => {
         if ((e.target as HTMLElement).tagName === 'INPUT') return;
         if ((e.target as HTMLElement).closest('.tx-category')) return;
         pc98Audio.playSelect();
@@ -3365,35 +3371,22 @@ export class KakeiboApp {
       this.setAiDockOpen(false);
     });
 
-    // BATCH ACTION HANDLERS
+    // BATCH ACTION HANDLERS — só lote (categoria / apagar). Edição = clique na linha.
     const btnSelectAll = document.getElementById('btn-batch-select-all');
-    const btnBatchEdit = document.getElementById('btn-batch-edit');
     const btnBatchDelete = document.getElementById('btn-batch-delete');
     const btnBatchRecategorize = document.getElementById('btn-batch-recategorize');
 
     btnSelectAll?.addEventListener('click', () => {
       pc98Audio.playClick();
-      const visibleTxs = this.transactions.filter(t => t.type !== 'transfer');
-      if (this.selectedJournalTxIds.size === visibleTxs.length) {
-        this.selectedJournalTxIds.clear();
+      const visibleTxs = this.journalVisibleTxs();
+      const allSelected =
+        visibleTxs.length > 0 && visibleTxs.every((t) => this.selectedJournalTxIds.has(t.id));
+      if (allSelected) {
+        visibleTxs.forEach((t) => this.selectedJournalTxIds.delete(t.id));
       } else {
-        visibleTxs.forEach(t => this.selectedJournalTxIds.add(t.id));
+        visibleTxs.forEach((t) => this.selectedJournalTxIds.add(t.id));
       }
       this.renderJournalTransactions(this.currentFilterKey);
-    });
-
-    btnBatchEdit?.addEventListener('click', () => {
-      if (this.selectedJournalTxIds.size === 0) return;
-      pc98Audio.playSelect();
-      const id =
-        (this.selectedTxId && this.selectedJournalTxIds.has(this.selectedTxId)
-          ? this.selectedTxId
-          : [...this.selectedJournalTxIds][0]) ?? null;
-      if (!id) return;
-      if (this.selectedJournalTxIds.size > 1) {
-        this.notify('Selecione um único lançamento para editar, ou use Mudar categoria no lote.', 'warn');
-      }
-      void this.openTxEdit(id);
     });
 
     btnBatchDelete?.addEventListener('click', async () => {

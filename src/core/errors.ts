@@ -78,8 +78,3 @@ export function conflict(message: string, details?: Record<string, unknown>): Ap
 export function ruleViolation(message: string, details?: Record<string, unknown>): AppError {
   return new AppError('RULE_VIOLATION', message, details);
 }
-
-/** Já existe algo com este nome — usado onde a unicidade é validada no serviço. */
-export function duplicateName(entity: string, name: string): AppError {
-  return new AppError('CONFLICT', `Já existe ${entity} com o nome "${name}".`, { entity, name });
-}

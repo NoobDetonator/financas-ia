@@ -90,7 +90,7 @@ echo   CONFIGURACAO CONCLUIDA
 echo  ================================================
 echo.
 
-node -e "require('dotenv').config({quiet:true});const p=(process.env.APP_PASSWORD||'').trim();const k=(process.env.DEEPSEEK_API_KEY||'').trim();const av=[];if(p===''||p==='troque-esta-senha')av.push('  [!] Defina APP_PASSWORD no arquivo .env - o servidor recusa subir sem ela.');else if(p.length<10||/^[0-9]+$/.test(p))av.push('  [!] Sua APP_PASSWORD e curta ou apenas numerica. Se for acessar pela rede, troque por algo mais longo.');if(k==='')av.push('  [!] DEEPSEEK_API_KEY vazia - o sistema funciona, mas sem a IA. Pegue a chave em https://platform.deepseek.com');if(av.length)console.log(av.join('\n')+'\n');else console.log('  [ok] Configuracao parece completa.\n');" 2>nul
+node --env-file-if-exists=.env -e "const p=(process.env.APP_PASSWORD||'').trim();const k=(process.env.DEEPSEEK_API_KEY||'').trim();const av=[];if(p===''||p==='troque-esta-senha')av.push('  [!] Defina APP_PASSWORD no arquivo .env - o servidor recusa subir sem ela.');else if(p.length<10||/^[0-9]+$/.test(p))av.push('  [!] Sua APP_PASSWORD e curta ou apenas numerica. Se for acessar pela rede, troque por algo mais longo.');if(k==='')av.push('  [!] DEEPSEEK_API_KEY vazia - o sistema funciona, mas sem a IA. Pegue a chave em https://platform.deepseek.com');if(av.length)console.log(av.join('\n')+'\n');else console.log('  [ok] Configuracao parece completa.\n');" 2>nul
 
 echo  Proximos passos:
 echo.

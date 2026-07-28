@@ -11,7 +11,6 @@ import { createSelectSchema } from 'drizzle-zod';
 import { z } from 'zod';
 import {
   accounts,
-  attachments,
   auditLog,
   budgets,
   cardInvoices,
@@ -71,7 +70,6 @@ export const positionSnapshotDto = createSelectSchema(positionSnapshots);
 export const ruleDto = createSelectSchema(rules);
 export const importBatchDto = createSelectSchema(importBatches);
 export const importRowDto = createSelectSchema(importRows);
-export const attachmentDto = createSelectSchema(attachments);
 export const changeSetDto = createSelectSchema(changeSets);
 export const auditEntryDto = createSelectSchema(auditLog);
 export const insightDto = createSelectSchema(insights);
@@ -92,15 +90,6 @@ export function writeResponse<T extends z.ZodTypeAny>(dataSchema: T) {
   });
 }
 
-export function pageResponse<T extends z.ZodTypeAny>(itemSchema: T) {
-  return z.object({
-    items: z.array(itemSchema),
-    total: z.number().int(),
-    limit: z.number().int(),
-    offset: z.number().int(),
-  });
-}
-
 export const errorResponseDto = z.object({
   error: z.string().describe('Código do erro: NOT_FOUND, VALIDATION, RULE_VIOLATION…'),
   message: z.string(),
@@ -108,5 +97,3 @@ export const errorResponseDto = z.object({
 });
 
 export const idParamDto = z.object({ id: z.string().min(1) });
-
-export const okDto = z.object({ ok: z.literal(true) });

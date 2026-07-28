@@ -18,7 +18,7 @@
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { getDb, type Db } from '../db/client.js';
 import { cardInvoices, transactions, type CardInvoice, type InvoiceStatus } from '../db/schema.js';
-import { notFound, ruleViolation } from '../core/errors.js';
+import { notFound } from '../core/errors.js';
 import { isAfter, isSameOrAfter, nowIso, today, type IsoDate, type MonthKey } from '../core/clock.js';
 import type { MutateContext } from '../mutate/index.js';
 import { getAccount, getCreditCard } from './accounts.js';
@@ -291,14 +291,4 @@ export function projectInvoice(
     totalCents: invoice?.totalCents ?? 0,
     invoiceId: invoice?.id ?? null,
   };
-}
-
-/** Impede excluir uma fatura já paga — apagaria o registro de um pagamento real. */
-export function assertInvoiceDeletable(invoice: CardInvoice): void {
-  if (invoice.paidCents > 0) {
-    throw ruleViolation(
-      `A fatura de ${invoice.referenceMonth} tem pagamento registrado e não pode ser excluída.`,
-      { invoiceId: invoice.id },
-    );
-  }
 }

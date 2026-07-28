@@ -24,7 +24,6 @@ import {
   type BudgetStatus,
   type CardInvoice,
   type Category,
-  type CategoryTrend,
   type Debt,
   type Finding,
   type DebtPayment,
@@ -44,7 +43,6 @@ import {
   type Tag,
   type Transaction as ApiTransaction,
   type TransactionStatus,
-  type CommitmentSummary,
   type CardNetwork,
 } from '../api/client';
 
@@ -201,16 +199,12 @@ export let INSIGHTS: Insight[] = [];
 export let MONTHLY_FLOW: MonthlyFlow[] = [];
 export let PROJECTION: ProjectionPoint[] = [];
 export let IMPORT_BATCHES: ImportBatch[] = [];
-export let TRENDS: CategoryTrend[] = [];
 
 /** Agregados calculados pelo backend. A interface só exibe. */
 export let BALANCES: AccountBalance[] = [];
 export let OVERVIEW: MonthOverview | null = null;
 export let NET_WORTH: NetWorth | null = null;
 export let PORTFOLIO: PortfolioSummary | null = null;
-export let COMMITMENTS: CommitmentSummary | null = null;
-export let UPCOMING_BILLS: Array<{ transaction: ApiTransaction; recurrenceName: string; daysUntil: number }> = [];
-export let PENDING_OCCURRENCES: Array<ApiTransaction & { recurrenceName: string }> = [];
 
 /** Data de referência do servidor — evita divergir do fuso do backend. */
 export let TODAY = new Date().toISOString().slice(0, 10);
@@ -379,6 +373,27 @@ function adaptProjection(projection: { startingCents: number; from: string; poin
   return points;
 }
 
+function applyAccounts(rows: ApiAccount[]): void {
+  ACCOUNTS = rows.map(adaptAccount);
+  CREDIT_CARDS = rows
+    .filter((a): a is ApiAccount & { card: NonNullable<ApiAccount['card']> } => a.card !== null)
+    .map((a) => ({
+      accountId: a.card.accountId,
+      limitCents: a.card.limitCents,
+      closingDay: a.card.closingDay,
+      dueDay: a.card.dueDay,
+      paymentAccountId: a.card.paymentAccountId ?? '',
+      isVirtual: a.card.isVirtual ?? false,
+      network: a.card.network ?? 'other',
+      holderLabel: a.card.holderLabel ?? null,
+    }));
+}
+
+function applyTransactions(pageItems: ApiTransaction[]): void {
+  const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
+  TRANSACTIONS = pageItems.map((tx) => adaptTransaction(tx, planTotals, new Map()));
+}
+
 // ── Carregamento ────────────────────────────────────────────────────────────
 
 function monthsAgo(months: number): string {
@@ -429,21 +444,7 @@ export async function loadAll(): Promise<LoadReport> {
   const tagsPromise = api.tags();
 
   await Promise.all([
-    settle('contas', api.accounts(), (rows) => {
-      ACCOUNTS = rows.map(adaptAccount);
-      CREDIT_CARDS = rows
-        .filter((a): a is ApiAccount & { card: NonNullable<ApiAccount['card']> } => a.card !== null)
-        .map((a) => ({
-          accountId: a.card.accountId,
-          limitCents: a.card.limitCents,
-          closingDay: a.card.closingDay,
-          dueDay: a.card.dueDay,
-          paymentAccountId: a.card.paymentAccountId ?? '',
-          isVirtual: a.card.isVirtual ?? false,
-          network: a.card.network ?? 'other',
-          holderLabel: a.card.holderLabel ?? null,
-        }));
-    }),
+    settle('contas', api.accounts(), applyAccounts),
     settle('saldos', api.balances(), (rows) => {
       BALANCES = rows;
     }),
@@ -494,20 +495,8 @@ export async function loadAll(): Promise<LoadReport> {
     settle('projeção', api.projection(60), (value) => {
       PROJECTION = adaptProjection(value);
     }),
-    settle('comprometimento', api.commitments(30), (value) => {
-      COMMITMENTS = value;
-    }),
-    settle('contas a vencer', api.upcomingBills(30), (rows) => {
-      UPCOMING_BILLS = rows;
-    }),
-    settle('confirmações pendentes', api.pendingOccurrences(), (rows) => {
-      PENDING_OCCURRENCES = rows;
-    }),
     settle('importações', api.imports(), (rows) => {
       IMPORT_BATCHES = rows;
-    }),
-    settle('tendências', api.trends(4), (rows) => {
-      TRENDS = rows;
     }),
   ]);
 
@@ -517,9 +506,8 @@ export async function loadAll(): Promise<LoadReport> {
   });
 
   // Transações depois dos planos, para saber o total de parcelas.
-  const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
   await settle('transações', api.transactions({ limit: 300, sort: 'date_desc' }), (page) => {
-    TRANSACTIONS = page.items.map((tx) => adaptTransaction(tx, planTotals, new Map()));
+    applyTransactions(page.items);
   });
 
   // Cronograma da primeira dívida, para a tela de dívidas.
@@ -553,9 +541,8 @@ export async function refreshAfterWrite(): Promise<void> {
     payees,
     tags,
     installmentPlans,
-    commitments,
-    upcomingBills,
-    pendingOccurrences,
+    insights,
+    imports,
   ] = await Promise.all([
     api.transactions({ limit: 300, sort: 'date_desc' }),
     api.balances(),
@@ -575,15 +562,12 @@ export async function refreshAfterWrite(): Promise<void> {
     api.payees(),
     api.tags(),
     api.installmentPlans(),
-    api.commitments(30),
-    api.upcomingBills(30),
-    api.pendingOccurrences(),
+    api.analyzeInsights(),
+    api.imports(),
   ]);
 
   INSTALLMENT_PLANS = installmentPlans;
-  const planTotals = new Map(INSTALLMENT_PLANS.map((p) => [p.id, p.installments]));
-
-  TRANSACTIONS = page.items.map((tx) => adaptTransaction(tx, planTotals, new Map()));
+  applyTransactions(page.items);
   BALANCES = balances;
   OVERVIEW = overview;
   CARD_INVOICES = invoices;
@@ -592,19 +576,7 @@ export async function refreshAfterWrite(): Promise<void> {
   PROJECTION = adaptProjection(projection);
   MONTHLY_FLOW = monthlyFlow.filter((row) => row.incomeCents !== 0 || row.expenseCents !== 0);
   CATEGORIES = categories;
-  ACCOUNTS = accounts.map(adaptAccount);
-  CREDIT_CARDS = accounts
-    .filter((a): a is ApiAccount & { card: NonNullable<ApiAccount['card']> } => a.card !== null)
-    .map((a) => ({
-      accountId: a.card.accountId,
-      limitCents: a.card.limitCents,
-      closingDay: a.card.closingDay,
-      dueDay: a.card.dueDay,
-      paymentAccountId: a.card.paymentAccountId ?? '',
-      isVirtual: a.card.isVirtual ?? false,
-      network: a.card.network ?? 'other',
-      holderLabel: a.card.holderLabel ?? null,
-    }));
+  applyAccounts(accounts);
   GOALS = goals;
   RECURRENCES = recurrences;
   RULES = rules.map(adaptRule);
@@ -613,17 +585,14 @@ export async function refreshAfterWrite(): Promise<void> {
   HOLDINGS = portfolio.positions;
   PAYEES = payees;
   TAGS = tags;
-  COMMITMENTS = commitments;
-  UPCOMING_BILLS = upcomingBills;
-  PENDING_OCCURRENCES = pendingOccurrences;
-}
+  INSIGHTS = insights.findings.map(adaptFinding);
+  IMPORT_BATCHES = imports;
 
-/** Substitui as tags de uma transação no store, após edição. */
-export async function refreshTransactionTags(transactionId: string): Promise<void> {
-  const detail = await api.transaction(transactionId);
-  const index = TRANSACTIONS.findIndex((t) => t.id === transactionId);
-  if (index >= 0) {
-    TRANSACTIONS[index] = { ...TRANSACTIONS[index]!, tagIds: detail.tags.map((t) => t.id) };
+  if (DEBTS.length > 0) {
+    const detail = await api.debtDetail(DEBTS[0]!.id);
+    DEBT_PAYMENTS = detail.schedule;
+  } else {
+    DEBT_PAYMENTS = [];
   }
 }
 

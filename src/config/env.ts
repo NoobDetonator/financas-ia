@@ -6,12 +6,17 @@
  * com um `undefined` no meio de uma transação de banco.
  */
 
+import { existsSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
-import 'dotenv/config';
 
 const projectRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..');
+
+const envFile = resolve(projectRoot, '.env');
+if (existsSync(envFile)) {
+  process.loadEnvFile(envFile);
+}
 
 const booleanish = z
   .union([z.boolean(), z.string()])
@@ -29,11 +34,8 @@ const envSchema = z.object({
   SESSION_SECRET: z.string().default(''),
   AUTH_DISABLED: booleanish.default(false),
 
-  AI_PROVIDER: z.enum(['deepseek', 'anthropic', 'openai']).default('deepseek'),
   AI_MODEL: z.string().min(1).default('deepseek-chat'),
   DEEPSEEK_API_KEY: z.string().default(''),
-  ANTHROPIC_API_KEY: z.string().default(''),
-  OPENAI_API_KEY: z.string().default(''),
 
   TZ: z.string().min(1).default('America/Sao_Paulo'),
 });
@@ -58,7 +60,6 @@ export const databaseFile = resolve(projectRoot, env.DATABASE_PATH);
 /** Pasta de dados: banco, backups e anexos. */
 export const dataDir = dirname(databaseFile);
 export const backupsDir = resolve(dataDir, 'backups');
-export const attachmentsDir = resolve(dataDir, 'attachments');
 export const migrationsDir = resolve(projectRoot, 'drizzle');
 
 export const isProduction = env.NODE_ENV === 'production';

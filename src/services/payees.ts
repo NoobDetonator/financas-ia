@@ -65,18 +65,6 @@ export function createPayee(input: CreatePayeeInput, options: WriteOptions = {})
   );
 }
 
-/**
- * Devolve o favorecido existente ou cria um novo.
- *
- * Chamado na importação e pela IA, onde criar duplicata ("Uber" e "UBER") seria
- * o resultado natural e arruinaria os agrupamentos.
- */
-export function ensurePayee(name: string, ctx: WriteOptions & { ctx: NonNullable<WriteOptions['ctx']> }): Payee {
-  const existing = findPayeeByName(name, ctx.ctx.tx);
-  if (existing) return existing;
-  return createPayee({ name }, ctx).data;
-}
-
 export function updatePayee(
   id: string,
   input: Partial<CreatePayeeInput>,

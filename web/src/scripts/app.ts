@@ -3654,6 +3654,25 @@ export class KakeiboApp {
   private initEvents() {
     // Keyboard Hotkey Navigation
     document.addEventListener('keydown', (e: KeyboardEvent) => {
+      // Escape/F1 funcionam mesmo com foco em input (modais de edição).
+      if (e.key === 'Escape') {
+        if (this.closeTopModal()) {
+          e.preventDefault();
+          return;
+        }
+        if (window.matchMedia('(max-width: 1100px)').matches) {
+          this.setAiDockOpen(false);
+        }
+        return;
+      }
+      if (e.key === 'F1') {
+        e.preventDefault();
+        const helpModal = document.getElementById('modal-help-guide');
+        if (helpModal?.classList.contains('hidden')) this.showModal(helpModal);
+        else helpModal?.classList.add('hidden');
+        return;
+      }
+
       if (e.target instanceof HTMLInputElement || e.target instanceof HTMLSelectElement || e.target instanceof HTMLTextAreaElement) {
         return;
       }
@@ -3674,19 +3693,8 @@ export class KakeiboApp {
         document.getElementById('btn-open-profile')?.click();
       } else if (e.key === '+' || e.key === '=') {
         this.switchTab('add');
-      }
-      else if (e.key === 'F1') {
-        e.preventDefault();
-        const helpModal = document.getElementById('modal-help-guide');
-        if (helpModal?.classList.contains('hidden')) this.showModal(helpModal);
-        else helpModal?.classList.add('hidden');
-      } else if (e.key === 'Escape') {
-        if (this.closeTopModal()) return;
-        if (window.matchMedia('(max-width: 1100px)').matches) {
-          this.setAiDockOpen(false);
-        }
       } else if (e.key === 'c' && !e.ctrlKey && !e.metaKey && !e.altKey) {
-        // Advance bottom dialogue dock (Continue)
+        // Advance bottom dialogue dock (próximo alerta)
         if (this.activeTab === 'dashboard' || this.activeTab === 'chat') {
           this.advanceAiDialogue();
         }
